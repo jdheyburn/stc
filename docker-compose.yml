@@ -1,0 +1,19 @@
+mysqldb:
+  image: mysql:8.0.22
+  # container_name: ${MYSQL_HOST}
+  container_name: dtdmysql  
+  restart: always
+  # env_file:
+  #   - ".env"
+  environment:
+    # - MYSQL_DATABASE=${MYSQL_DATABASE}
+    - MYSQL_DATABASE=fares
+    # - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+    - MYSQL_ROOT_PASSWORD=password123
+    # - MYSQL_USER=${MYSQL_USER}
+    # - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+  ports:
+    - "3306:3306"
+  volumes:
+    - "./data/db/mysql:/var/lib/mysql"
+  command: --innodb-use-native-aio=0
