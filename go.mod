@@ -10,4 +10,6 @@ require (
 	github.com/spf13/cobra v1.1.1 // indirect
 	github.com/stretchr/testify v1.4.0
 	go.uber.org/zap v1.10.0
+	gorm.io/driver/mysql v1.0.3
+	gorm.io/gorm v1.20.8
 )

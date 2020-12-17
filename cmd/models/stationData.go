@@ -1,13 +1,26 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 type StationData struct {
-	UIC         string     `db:"uic"`
-	NLC         string     `db:"nlc"`
-	CRS         string     `db:"crs"`
-	FareGroup   string     `db:"fare_group"`
-	Description string     `db:"description"`
-	StartDate   *time.Time `db:"start_date"`
-	EndDate     *time.Time `db:"end_date"`
+	gorm.Model
+	UIC         string `gorm:"column:uic"`
+	NLC         string
+	CRS         string
+	FareGroup   string
+	Description string
+	StartDate   *time.Time
+	EndDate     *time.Time
+}
+
+// type Tabler interface {
+// 	TableName() string
+// }
+
+func (StationData) TableName() string {
+	return "location"
 }
