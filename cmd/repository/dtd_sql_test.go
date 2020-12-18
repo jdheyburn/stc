@@ -18,6 +18,7 @@ const (
 	findStationsByCrsQuery             = "SELECT `uic`,`nlc`,`description`,`crs`,`fare_group`,`start_date`,`end_date` FROM `location` WHERE crs = ? AND start_date <= CURDATE() AND end_date > CURDATE()"
 	findFlowsForStationsQuery          = "SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE()"
 	findFlowsForStationsDirectionQuery = "SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE() AND direction = 'R'"
+	findAllFlowsForStationQuery        = ""
 )
 
 func newDateField(year int, month time.Month, day int) *time.Time {
@@ -230,7 +231,6 @@ func TestDtdRepositorySql_FindFlowsForStations(t *testing.T) {
 				},
 			},
 		},
-
 		{
 			name: "should query reverse of route given empty first result",
 			fields: fields{
@@ -259,6 +259,22 @@ func TestDtdRepositorySql_FindFlowsForStations(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "should return not found error if no records found",
+			fields: fields{
+				db: db,
+			},
+			args: args{
+				src: "5433",
+				dst: "5432",
+			},
+			setUp: func(a args) {
+				firstQuery := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"})
+				mock.ExpectQuery(regexp.QuoteMeta(findFlowsForStationsQuery)).WithArgs("5433", "5432").WillReturnRows(firstQuery)
+				mock.ExpectQuery(regexp.QuoteMeta(findFlowsForStationsDirectionQuery)).WithArgs("5432", "5433").WillReturnRows(firstQuery)
+			},
+			wantErr: ErrNotFound,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -267,6 +283,106 @@ func TestDtdRepositorySql_FindFlowsForStations(t *testing.T) {
 			}
 			tt.setUp(tt.args)
 			got, err := dtd.FindFlowsForStations(tt.args.src, tt.args.dst)
+			if err != nil && tt.wantErr == nil {
+				assert.Fail(t, fmt.Sprintf(
+					"Error not expected but got one:\n"+
+						"error: %q", err),
+				)
+				return
+			}
+			if tt.wantErr != nil {
+				assert.EqualError(t, err, tt.wantErr.Error())
+				return
+			}
+			assert.Equal(t, tt.want, got)
+			if err := mock.ExpectationsWereMet(); err != nil {
+				assert.Fail(t, "Not all mocks hit", err)
+			}
+		})
+	}
+}
+
+func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
+
+	db, mock := newMock()
+
+	type fields struct {
+		db *gorm.DB
+	}
+	type args struct {
+		nlc string
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		setUp   func(args)
+		want    []*models.FlowData
+		wantErr error
+	}{
+		{
+			name: "should return multiple flows for stations",
+			fields: fields{
+				db: db,
+			},
+			args: args{
+				nlc: "5433",
+			},
+			setUp: func(a args) {
+				rows := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"}).
+					AddRow("6145", "0258", "5433", "00700", "R", newDateField(2020, 1, 2), infiniteTime).
+					AddRow("44089", "1402", "5433", "00000", "S", newDateField(2020, 5, 18), infiniteTime).
+					AddRow("135925", "5433", "5417", "01000", "S", newDateField(2020, 1, 2), infiniteTime).
+					AddRow("132215", "5433", "5611", "00700", "R", newDateField(2020, 1, 2), infiniteTime)
+				mock.ExpectQuery(regexp.QuoteMeta(findAllFlowsForStationQuery)).WithArgs("5433").WillReturnRows(rows)
+			},
+			want: []*models.FlowData{
+				{
+					FlowID:          "6145",
+					OriginCode:      "0258",
+					DestinationCode: "5433",
+					RouteCode:       "00700",
+					Direction:       "R",
+					StartDate:       newDateField(2020, 1, 2),
+					EndDate:         infiniteTime,
+				},
+				{
+					FlowID:          "44089",
+					OriginCode:      "1402",
+					DestinationCode: "5433",
+					RouteCode:       "00000",
+					Direction:       "S",
+					StartDate:       newDateField(2020, 5, 18),
+					EndDate:         infiniteTime,
+				},
+				{
+					FlowID:          "135925",
+					OriginCode:      "5433",
+					DestinationCode: "5417",
+					RouteCode:       "01000",
+					Direction:       "S",
+					StartDate:       newDateField(2020, 1, 2),
+					EndDate:         infiniteTime,
+				},
+				{
+					FlowID:          "132215",
+					OriginCode:      "5433",
+					DestinationCode: "5611",
+					RouteCode:       "00700",
+					Direction:       "R",
+					StartDate:       newDateField(2020, 1, 2),
+					EndDate:         infiniteTime,
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dtd := &DtdRepositorySql{
+				db: tt.fields.db,
+			}
+			tt.setUp(tt.args)
+			got, err := dtd.FindAllFlowsForStation(tt.args.nlc)
 			if err != nil && tt.wantErr == nil {
 				assert.Fail(t, fmt.Sprintf(
 					"Error not expected but got one:\n"+

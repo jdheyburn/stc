@@ -16,5 +16,7 @@ func init() {
 
 // DtdRepository provides an abstraction between databases
 type DtdRepository interface {
-	FindStationByCRS(crs string) (*models.StationData, error)
+	FindStationsByCrs(crs string) (*models.StationData, error)
+	FindFlowsForStations(src, dst string) ([]*models.FlowData, error)
+	FindAllFlowsForStation(nlc string) ([]*models.FlowData, error)
 }

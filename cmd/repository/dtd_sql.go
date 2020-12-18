@@ -113,3 +113,25 @@ func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) ([]*models.Fl
 
 	return nil, ErrNotFound
 }
+
+// TODO need to find flows where the second query is not in direction R
+
+func (dtd *DtdRepositorySql) FindAllFlowsForStation(nlc string) ([]*models.FlowData, error) {
+
+	var flows []*models.FlowData
+	err := dtd.db.Unscoped().
+		Select("flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date").
+		Where("origin_code = ? OR destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE()", nlc).
+		Find(&flows).
+		Error
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "querying all flows for NLC %s", nlc)
+	}
+
+	if len(flows) == 0 {
+		return nil, ErrNotFound
+	}
+
+	return flows, nil
+}
