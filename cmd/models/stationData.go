@@ -17,10 +17,6 @@ type StationData struct {
 	EndDate     *time.Time
 }
 
-// type Tabler interface {
-// 	TableName() string
-// }
-
 func (StationData) TableName() string {
 	return "location"
 }

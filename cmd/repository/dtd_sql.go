@@ -10,19 +10,6 @@ import (
 	"gorm.io/gorm"
 )
 
-const (
-	findStationByCrsQuery = `
-SELECT uic, start_date, end_date, nlc, description, crs, fare_group
-FROM location 
-WHERE crs = '%s' AND start_date <= CURDATE() AND end_date > CURDATE();
-`
-	findFlowsForStationsQuery = `
-SELECT flow_id, origin_code, destination_code, route_code, direction, start_date, end_date
-FROM flow 
-WHERE origin_code = '%s' and destination_code = '%s' AND start_date <= CURDATE() AND end_date > CURDATE();
-`
-)
-
 // ErrNotFound is returned when a record cannot be found
 var ErrNotFound = errors.New("not found")
 
@@ -79,51 +66,50 @@ func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) ([]*models.StationDat
 	return stations, nil
 }
 
-// func (dtd *DtdRepositorySql) findFlows(src, dst string) ([]*models.FlowData, error) {
-// 	rows, err := dtd.db.Query(fmt.Sprintf(findFlowsForStationsQuery, src, dst))
-// 	if err != nil {
-// 		return nil, errors.Wrap(err, "querying flow")
-// 	}
-// 	defer rows.Close()
+func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) ([]*models.FlowData, error) {
 
-// 	flows := make([]*models.FlowData, 0)
-// 	for rows.Next() {
-// 		flow := models.FlowData{}
-// 		err := rows.Scan(&flow.ID, &flow.OriginCode, &flow.DestinationCode, &flow.RouteCode, &flow.Direction, &flow.StartDate, &flow.EndDate)
-// 		if err != nil {
-// 			return nil, errors.Wrap(err, "scanning row to FlowData")
-// 		}
-// 		flows = append(flows, &flow)
-// 	}
-// 	err = rows.Err()
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	var directionFilter string
+	if reversed {
+		directionFilter = " AND direction = 'R'"
+	}
 
-// 	return flows, nil
-// }
+	var flows []*models.FlowData
+	err := dtd.db.Unscoped().
+		Select("flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date").
+		Where(fmt.Sprintf("origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE()%s", directionFilter), src, dst).
+		Find(&flows).
+		Error
 
-// // FindFlowsForStations returns all flows between two NLC codes
-// func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) ([]*models.FlowData, error) {
+	if err != nil {
+		return nil, errors.Wrapf(err, "querying flows for source: %s dest: %s", src, dst)
+	}
 
-// 	flows, err := dtd.findFlows(src, dst)
-// 	if err != nil {
-// 		return nil, errors.Wrapf(err, "querying flows for source: %s dest: %s", src, dst)
-// 	}
+	return flows, err
+}
 
-// 	if len(flows) > 0 {
-// 		return flows, nil
-// 	}
+// FindFlowsForStations returns all flows between two NLC codes
+func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) ([]*models.FlowData, error) {
 
-// 	// Else we didn't get any results, query for the other way round
-// 	flows, err = dtd.findFlows(src, dst)
-// 	if err != nil {
-// 		return nil, errors.Wrapf(err, "querying flows for source: %s dest: %s", dst, src)
-// 	}
+	reversed := false
+	flows, err := dtd.findFlows(src, dst, reversed)
+	if err != nil {
+		return nil, err
+	}
 
-// 	if len(flows) > 0 {
-// 		return flows, nil
-// 	}
+	if len(flows) > 0 {
+		return flows, nil
+	}
 
-// 	return nil, ErrNotFound
-// }
+	// Else we didn't get any results, query for the other way round
+	reversed = true
+	flows, err = dtd.findFlows(dst, src, reversed)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(flows) > 0 {
+		return flows, nil
+	}
+
+	return nil, ErrNotFound
+}

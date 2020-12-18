@@ -15,7 +15,9 @@ import (
 )
 
 const (
-	findStationsByCrsQuery = "SELECT `uic`,`nlc`,`description`,`crs`,`fare_group`,`start_date`,`end_date` FROM `location` WHERE crs = ? AND start_date <= CURDATE() AND end_date > CURDATE()"
+	findStationsByCrsQuery             = "SELECT `uic`,`nlc`,`description`,`crs`,`fare_group`,`start_date`,`end_date` FROM `location` WHERE crs = ? AND start_date <= CURDATE() AND end_date > CURDATE()"
+	findFlowsForStationsQuery          = "SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE()"
+	findFlowsForStationsDirectionQuery = "SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE() AND direction = 'R'"
 )
 
 func newDateField(year int, month time.Month, day int) *time.Time {
@@ -148,11 +150,11 @@ func TestDtdRepositorySql_FindStationsByCrs(t *testing.T) {
 				db: db,
 			},
 			args: args{
-				crs: "SNR",
+				crs: "NOPE",
 			},
 			setUp: func(a args) {
 				rows := sqlmock.NewRows([]string{"uic", "nlc", "description", "crs", "fare_group", "start_date", "end_date"})
-				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQuery)).WithArgs("SNR").WillReturnRows(rows)
+				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQuery)).WithArgs("NOPE").WillReturnRows(rows)
 			},
 			wantErr: ErrNotFound,
 		},
@@ -176,64 +178,110 @@ func TestDtdRepositorySql_FindStationsByCrs(t *testing.T) {
 				return
 			}
 			assert.Equal(t, tt.want, got)
+			if err := mock.ExpectationsWereMet(); err != nil {
+				assert.Fail(t, "Not all mocks hit", err)
+			}
 		})
 	}
 }
 
-// func TestDtdRepositorySql_FindFlowsForStations(t *testing.T) {
+func TestDtdRepositorySql_FindFlowsForStations(t *testing.T) {
 
-//     db, mock := newMock()
+	db, mock := newMock()
 
-//     type fields struct {
-//         db *sql.DB
-//     }
-//     type args struct {
-//         src string
-//         dst string
-//     }
-//     tests := []struct {
-//         name    string
-//         fields  fields
-//         args    args
-//         setUp   func(args)
-//         want    []*models.FlowData
-//         wantErr error
-//     }{
-//         {
-//             name: "should return not found error given no records found",
-//             fields: fields{
-//                 db: db,
-//             },
-//             args: args{
-//                 src: ""
-//                 crs: "SNR",
-//             },
-//             setUp: func(a args) {
-//                 rows := sqlmock.NewRows([]string{"uic", "startsdate", "end_date", "nlc", "description", "crs", "fare_group"})
-//                 mock.ExpectQuery(fmt.Sprintf(findStationByCrsQueryTest, a.crs)).WillReturnRows(rows)
-//             },
-//             wantErr: ErrNotFound,
-//         },
-//     }
-//     for _, tt := range tests {
-//         t.Run(tt.name, func(t *testing.T) {
-//             dtd := &DtdRepositorySql{
-//                 db: tt.fields.db,
-//             }
-//             // mock.ExpectQuery(fmt.Sprintf(findStationByCrsQueryTest, tt.args.src, tt.args.dst)).WillReturnRows(tt.returnRows)
-//             got, err := dtd.FindFlowsForStations(tt.args.src, tt.args.dst)
-//             if err != nil && tt.wantErr == nil {
-//                 assert.Fail(t, fmt.Sprintf(
-//                     "Error not expected but got one:\n"+
-//                         "error: %q", err),
-//                 )
-//                 return
-//             }
-//             if tt.wantErr != nil {
-//                 assert.EqualError(t, err, tt.wantErr.Error())
-//                 return
-//             }
-//             assert.Equal(t, tt.want, got)
-//         })
-//     }
-// }
+	type fields struct {
+		db *gorm.DB
+	}
+	type args struct {
+		src string
+		dst string
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		setUp   func(args)
+		want    []*models.FlowData
+		wantErr error
+	}{
+		{
+			name: "should return flows for src and dst",
+			fields: fields{
+				db: db,
+			},
+			args: args{
+				src: "5432",
+				dst: "5433",
+			},
+			setUp: func(a args) {
+				rows := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"}).
+					AddRow("136210", "5432", "5433", "01000", "R", newDateField(2020, 1, 3), infiniteTime)
+				mock.ExpectQuery(regexp.QuoteMeta(findFlowsForStationsQuery)).WithArgs("5432", "5433").WillReturnRows(rows)
+			},
+			want: []*models.FlowData{
+				{
+					FlowID:          "136210",
+					OriginCode:      "5432",
+					DestinationCode: "5433",
+					RouteCode:       "01000",
+					Direction:       "R",
+					StartDate:       newDateField(2020, 1, 3),
+					EndDate:         infiniteTime,
+				},
+			},
+		},
+
+		{
+			name: "should query reverse of route given empty first result",
+			fields: fields{
+				db: db,
+			},
+			args: args{
+				src: "5433",
+				dst: "5432",
+			},
+			setUp: func(a args) {
+				firstQuery := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"})
+				mock.ExpectQuery(regexp.QuoteMeta(findFlowsForStationsQuery)).WithArgs("5433", "5432").WillReturnRows(firstQuery)
+				secondQuery := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"}).
+					AddRow("136210", "5432", "5433", "01000", "R", newDateField(2020, 1, 3), infiniteTime)
+				mock.ExpectQuery(regexp.QuoteMeta(findFlowsForStationsDirectionQuery)).WithArgs("5432", "5433").WillReturnRows(secondQuery)
+			},
+			want: []*models.FlowData{
+				{
+					FlowID:          "136210",
+					OriginCode:      "5432",
+					DestinationCode: "5433",
+					RouteCode:       "01000",
+					Direction:       "R",
+					StartDate:       newDateField(2020, 1, 3),
+					EndDate:         infiniteTime,
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dtd := &DtdRepositorySql{
+				db: tt.fields.db,
+			}
+			tt.setUp(tt.args)
+			got, err := dtd.FindFlowsForStations(tt.args.src, tt.args.dst)
+			if err != nil && tt.wantErr == nil {
+				assert.Fail(t, fmt.Sprintf(
+					"Error not expected but got one:\n"+
+						"error: %q", err),
+				)
+				return
+			}
+			if tt.wantErr != nil {
+				assert.EqualError(t, err, tt.wantErr.Error())
+				return
+			}
+			assert.Equal(t, tt.want, got)
+			if err := mock.ExpectationsWereMet(); err != nil {
+				assert.Fail(t, "Not all mocks hit", err)
+			}
+		})
+	}
+}
