@@ -19,6 +19,7 @@ const (
 	findFlowsForStationsQuery          = "SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE()"
 	findFlowsForStationsDirectionQuery = "SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE() AND direction = 'R'"
 	findAllFlowsForStationQuery        = ""
+	findFaresForFlowQuery              = "SELECT DISTINCT fare.id,fare.flow_id,fare.ticket_code,fare.fare,fare.restriction_code,ticket_type.description,ticket_type.tkt_class as ticket_class FROM `fare` LEFT JOIN ticket_type on fare.ticket_code = ticket_type.ticket_code WHERE fare.flow_id IN (?) AND ticket_type.start_date <= CURDATE() AND ticket_type.end_date > CURDATE()"
 )
 
 func newDateField(year int, month time.Month, day int) *time.Time {
@@ -375,6 +376,24 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "should return multiple flows for stations",
+			fields: fields{
+				db: db,
+			},
+			args: args{
+				nlc: "5433",
+			},
+			setUp: func(a args) {
+				rows := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"}).
+					AddRow("6145", "0258", "5433", "00700", "R", newDateField(2020, 1, 2), infiniteTime).
+					AddRow("44089", "1402", "5433", "00000", "S", newDateField(2020, 5, 18), infiniteTime).
+					AddRow("135925", "5433", "5417", "01000", "S", newDateField(2020, 1, 2), infiniteTime).
+					AddRow("132215", "5433", "5611", "00700", "R", newDateField(2020, 1, 2), infiniteTime)
+				mock.ExpectQuery(regexp.QuoteMeta(findAllFlowsForStationQuery)).WithArgs("5433").WillReturnRows(rows)
+			},
+			wantErr: ErrNotFound,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -395,6 +414,120 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 				return
 			}
 			assert.Equal(t, tt.want, got)
+			if err := mock.ExpectationsWereMet(); err != nil {
+				assert.Fail(t, "Not all mocks hit", err)
+			}
+		})
+	}
+}
+
+func TestDtdRepositorySql_FindFaresForFlow(t *testing.T) {
+
+	db, mock := newMock()
+
+	type fields struct {
+		db *gorm.DB
+	}
+	type args struct {
+		flowId uint
+	}
+	tests := []struct {
+		name      string
+		fields    fields
+		args      args
+		setUp     func(args)
+		wantFares []*models.FareDetail
+		wantErr   error
+	}{
+		{
+			name: "should return fares for flow",
+			fields: fields{
+				db: db,
+			},
+			args: args{
+				flowId: 136210,
+			},
+			setUp: func(a args) {
+				rows := sqlmock.NewRows([]string{"id", "flow_id", "ticket_code", "fare", "restriction_code", "description", "ticket_class"}).
+					AddRow(1051573, 136210, "0AE", 450, nil, "SMART SDR", 2).
+					AddRow(1051574, 136210, "0AF", 270, nil, "SMART SDS", 2).
+					AddRow(1051578, 136210, "PAP", 240, "PF", "PAYG PEAK INFO", 2).
+					AddRow(1051579, 136210, "POP", 220, "PG", "PAYG OFFPK INFO", 2)
+				mock.ExpectQuery(regexp.QuoteMeta(findFaresForFlowQuery)).WithArgs(136210).WillReturnRows(rows)
+			},
+			wantFares: []*models.FareDetail{
+				{
+					Model:           gorm.Model{ID: 1051573},
+					FlowID:          136210,
+					TicketCode:      "0AE",
+					Fare:            450,
+					RestrictionCode: "",
+					Description:     "SMART SDR",
+					TicketClass:     2,
+				},
+				{
+					Model:           gorm.Model{ID: 1051574},
+					FlowID:          136210,
+					TicketCode:      "0AF",
+					Fare:            270,
+					RestrictionCode: "",
+					Description:     "SMART SDS",
+					TicketClass:     2,
+				},
+				{
+					Model:           gorm.Model{ID: 1051578},
+					FlowID:          136210,
+					TicketCode:      "PAP",
+					Fare:            240,
+					RestrictionCode: "PF",
+					Description:     "PAYG PEAK INFO",
+					TicketClass:     2,
+				},
+				{
+					Model:           gorm.Model{ID: 1051579},
+					FlowID:          136210,
+					TicketCode:      "POP",
+					Fare:            220,
+					RestrictionCode: "PG",
+					Description:     "PAYG OFFPK INFO",
+					TicketClass:     2,
+				},
+			},
+		},
+		{
+			name: "should return fares for flow",
+			fields: fields{
+				db: db,
+			},
+			args: args{
+				flowId: 136210,
+			},
+			setUp: func(a args) {
+				rows := sqlmock.NewRows([]string{"id", "flow_id", "ticket_code", "fare", "restriction_code", "description", "ticket_class"})
+				mock.ExpectQuery(regexp.QuoteMeta(findFaresForFlowQuery)).WithArgs(136210).WillReturnRows(rows)
+			},
+			wantErr: ErrNotFound,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dtd := &DtdRepositorySql{
+				db: tt.fields.db,
+			}
+			tt.setUp(tt.args)
+			gotFares, err := dtd.FindFaresForFlow(tt.args.flowId)
+			if err != nil && tt.wantErr == nil {
+				assert.Fail(t, fmt.Sprintf(
+					"Error not expected but got one:\n"+
+						"error: %q", err),
+				)
+				return
+			}
+			if tt.wantErr != nil {
+				assert.EqualError(t, err, tt.wantErr.Error())
+				return
+			}
+			assert.Equal(t, tt.wantFares, gotFares)
 			if err := mock.ExpectationsWereMet(); err != nil {
 				assert.Fail(t, "Not all mocks hit", err)
 			}

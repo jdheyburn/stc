@@ -135,3 +135,23 @@ func (dtd *DtdRepositorySql) FindAllFlowsForStation(nlc string) ([]*models.FlowD
 
 	return flows, nil
 }
+
+func (dtd *DtdRepositorySql) FindFaresForFlow(flowId uint) (fares []*models.FareDetail, err error) {
+
+	err = dtd.db.Unscoped().Model(&models.FareData{}).
+		Distinct("fare.id", "fare.flow_id", "fare.ticket_code", "fare.fare", "fare.restriction_code", "ticket_type.description", "ticket_type.tkt_class as ticket_class").
+		Joins("LEFT JOIN ticket_type on fare.ticket_code = ticket_type.ticket_code").
+		Where("fare.flow_id IN (?) AND ticket_type.start_date <= CURDATE() AND ticket_type.end_date > CURDATE()", flowId).
+		Scan(&fares).
+		Error
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "querying all fares for flowID %v", flowId)
+	}
+
+	if len(fares) == 0 {
+		return nil, ErrNotFound
+	}
+
+	return fares, nil
+}
