@@ -46,63 +46,6 @@ func newMock() (*gorm.DB, sqlmock.Sqlmock) {
 	return gdb, mock
 }
 
-func TestDtdRepositorySql_FindStationByCrs_Single(t *testing.T) {
-
-	opts := &DtdSqlDBOptions{
-		User:     "root",
-		Password: "password123",
-		Host:     "localhost",
-		Port:     "3306",
-		DBName:   "fares",
-	}
-	repo, err := NewDtdRepositorySql(opts)
-	if err != nil {
-		panic(err)
-	}
-
-	expected := []*models.LocationData{
-		{
-			UIC:         "7054330",
-			StartDate:   newDateField(2020, 9, 9),
-			EndDate:     infiniteTime,
-			NLC:         "5433",
-			Description: "SANDERSTEAD",
-			CRS:         "SNR",
-			FareGroup:   "5433",
-		},
-	}
-
-	// rows := sqlmock.NewRows([]string{"uic", "start_date", "end_date", "nlc", "description", "crs", "fare_group"}).
-	// 	AddRow(expected.UIC, expected.StartDate, expected.EndDate, expected.NLC, expected.Description, expected.CRS, expected.FareGroup)
-
-	// mock.ExpectQuery(fmt.Sprintf(findStationByCrsQueryTest, "SNR")).WillReturnRows(rows)
-
-	actual, err := repo.FindStationsByCrs("SNR")
-
-	assert.NotNil(t, actual)
-	assert.NoError(t, err)
-	assert.Equal(t, expected, actual)
-}
-
-// func TestDtdRepositorySql_FindStationByCrs_NoneError(t *testing.T) {
-
-// 	db, mock := newMock()
-// 	repo := &DtdRepositorySql{db}
-
-// 	defer func() {
-// 		repo.db.Close()
-// 	}()
-
-// 	rows := sqlmock.NewRows([]string{"uic", "start_date", "end_date", "nlc", "description", "crs", "fare_group"})
-
-// 	mock.ExpectQuery(fmt.Sprintf(findStationByCrsQueryTest, "SNR")).WillReturnRows(rows)
-
-// 	actual, err := repo.FindStationByCrs("SNR")
-
-// 	assert.Empty(t, actual)
-// 	assert.EqualError(t, err, ErrNotFound.Error())
-// }
-
 func TestDtdRepositorySql_FindStationsByCrs(t *testing.T) {
 
 	db, mock := newMock()
