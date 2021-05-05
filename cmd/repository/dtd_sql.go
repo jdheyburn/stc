@@ -122,11 +122,20 @@ func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) ([]*models.Fl
 	return nil, ErrNotFound
 }
 
-func (dtd *DtdRepositorySql) FindAllFlowsForStation(nlc string) ([]*models.FlowData, error) {
+func (dtd *DtdRepositorySql) FindAllFlowsForStation(nlc string) (flows []*models.FlowDetail, err error) {
 
-	var flows []*models.FlowData
-	err := dtd.db.Unscoped().
-		Select("flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date").
+	err = dtd.db.Unscoped().Model(&models.FlowData{}).
+		Select(
+			"flow.flow_id", 
+			"flow.origin_code", 
+			"flow.destination_code", 
+			"flow.direction", 
+			"flow.start_date", 
+			"flow.end_date",
+			"flow.route_code",
+			"route.description as route_desc",
+			).
+			Joins("LEFT JOIN route on flow.route_code = route.route_code").
 		Where("origin_code = ? OR destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE()", nlc).
 		Find(&flows).
 		Error

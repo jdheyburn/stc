@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// FareData maps directly to records in the flow table
 type FlowData struct {
 	gorm.Model
 	FlowID          string
@@ -19,4 +20,17 @@ type FlowData struct {
 
 func (FlowData) TableName() string {
 	return "flow"
+}
+
+type FlowDetail struct {
+	gorm.Model
+	FlowID          string
+	OriginCode      string
+	DestinationCode string
+	Direction       string
+	StartDate       *time.Time
+	EndDate         *time.Time
+	RouteCode       string
+	// Left Join route
+	RouteDesc string
 }

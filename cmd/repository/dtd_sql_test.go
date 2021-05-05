@@ -261,7 +261,7 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 		fields  fields
 		args    args
 		setUp   func(args)
-		want    []*models.FlowData
+		want    []*models.FlowDetail
 		wantErr error
 	}{
 		{
@@ -273,14 +273,14 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 				nlc: "5433",
 			},
 			setUp: func(a args) {
-				rows := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"}).
-					AddRow("6145", "0258", "5433", "00700", "R", newDateField(2020, 1, 2), infiniteTime).
-					AddRow("44089", "1402", "5433", "00000", "S", newDateField(2020, 5, 18), infiniteTime).
-					AddRow("135925", "5433", "5417", "01000", "S", newDateField(2020, 1, 2), infiniteTime).
-					AddRow("132215", "5433", "5611", "00700", "R", newDateField(2020, 1, 2), infiniteTime)
+				rows := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "direction", "start_date", "end_date", "route_code", "route_desc"}).
+					AddRow("6145", "0258", "5433", "R", newDateField(2020, 1, 2), infiniteTime, "00700", "NOT VIA LONDON").
+					AddRow("44089", "1402", "5433", "S", newDateField(2020, 5, 18), infiniteTime, "00000", "ANY PERMITTED").
+					AddRow("135925", "5433", "5417", "S", newDateField(2020, 1, 2), infiniteTime, "01000", ".").
+					AddRow("132215", "5433", "5611", "R", newDateField(2020, 1, 2), infiniteTime, "00700", "NOT VIA LONDON")
 				mock.ExpectQuery(regexp.QuoteMeta(findAllFlowsForStationQuery)).WithArgs("5433").WillReturnRows(rows)
 			},
-			want: []*models.FlowData{
+			want: []*models.FlowDetail{
 				{
 					FlowID:          "6145",
 					OriginCode:      "0258",
@@ -289,6 +289,7 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 					Direction:       "R",
 					StartDate:       newDateField(2020, 1, 2),
 					EndDate:         infiniteTime,
+					RouteDesc: "NOT VIA LONDON",
 				},
 				{
 					FlowID:          "44089",
@@ -298,6 +299,8 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 					Direction:       "S",
 					StartDate:       newDateField(2020, 5, 18),
 					EndDate:         infiniteTime,
+					RouteDesc: "ANY PERMITTED",
+
 				},
 				{
 					FlowID:          "135925",
@@ -307,6 +310,8 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 					Direction:       "S",
 					StartDate:       newDateField(2020, 1, 2),
 					EndDate:         infiniteTime,
+					RouteDesc: ".",
+
 				},
 				{
 					FlowID:          "132215",
@@ -316,6 +321,8 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 					Direction:       "R",
 					StartDate:       newDateField(2020, 1, 2),
 					EndDate:         infiniteTime,
+					RouteDesc: "NOT VIA LONDON",
+
 				},
 			},
 		},
