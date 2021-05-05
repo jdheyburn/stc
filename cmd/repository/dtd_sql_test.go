@@ -501,7 +501,7 @@ func TestDtdRepositorySql_FindFaresForFlow(t *testing.T) {
 			},
 		},
 		{
-			name: "should return fares for flow",
+			name: "should return error given no rows",
 			fields: fields{
 				db: db,
 			},
