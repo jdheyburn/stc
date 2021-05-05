@@ -16,10 +16,11 @@ import (
 
 const (
 	findStationsByCrsQuery             = "SELECT `uic`,`nlc`,`description`,`crs`,`fare_group`,`start_date`,`end_date` FROM `location` WHERE crs = ? AND start_date <= CURDATE() AND end_date > CURDATE()"
-	findFlowsForStationsQuery          = "SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE()"
-	findFlowsForStationsDirectionQuery = "SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE() AND direction = 'R'"
-	findAllFlowsForStationQuery        = ""
-	findFaresForFlowQuery              = "SELECT fare.id,fare.flow_id,fare.ticket_code,fare.fare,fare.restriction_code,ticket_type.description as ticket_description,ticket_type.tkt_class as ticket_class,ticket_type.tkt_type as ticket_type,restriction_header.description as restriction_desc,restriction_header.desc_out as restriction_desc_out,restriction_header.desc_ret as restriction_desc_rtn FROM `fare` LEFT JOIN ticket_type on fare.ticket_code = ticket_type.ticket_code LEFT JOIN restriction_header on fare.restriction_code = restriction_header.restriction_code WHERE fare.flow_id IN (?) AND ticket_type.start_date <= CURDATE() AND ticket_type.end_date > CURDATE()"
+	findFlowsForStationsQuery          = "SELECT flow.flow_id,flow.origin_code,flow.destination_code,flow.direction,flow.start_date,flow.end_date,flow.route_code,route.description as route_desc FROM `flow` LEFT JOIN route on flow.route_code = route.route_code WHERE flow.origin_code = ? AND flow.destination_code = ? AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE()"
+	findFlowsForStationsDirectionQuery = "SELECT flow.flow_id,flow.origin_code,flow.destination_code,flow.direction,flow.start_date,flow.end_date,flow.route_code,route.description as route_desc FROM `flow` LEFT JOIN route on flow.route_code = route.route_code WHERE flow.origin_code = ? AND flow.destination_code = ? AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE() AND flow.direction = 'R'"
+	// findFlowsForStationsDirectionQuery = "SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE() AND direction = 'R'"
+	findAllFlowsForStationQuery = ""
+	findFaresForFlowQuery       = "SELECT fare.id,fare.flow_id,fare.ticket_code,fare.fare,fare.restriction_code,ticket_type.description as ticket_description,ticket_type.tkt_class as ticket_class,ticket_type.tkt_type as ticket_type,restriction_header.description as restriction_desc,restriction_header.desc_out as restriction_desc_out,restriction_header.desc_ret as restriction_desc_rtn FROM `fare` LEFT JOIN ticket_type on fare.ticket_code = ticket_type.ticket_code LEFT JOIN restriction_header on fare.restriction_code = restriction_header.restriction_code WHERE fare.flow_id IN (?) AND ticket_type.start_date <= CURDATE() AND ticket_type.end_date > CURDATE()"
 )
 
 func newDateField(year int, month time.Month, day int) *time.Time {
@@ -146,7 +147,7 @@ func TestDtdRepositorySql_FindFlowsForStations(t *testing.T) {
 		fields  fields
 		args    args
 		setUp   func(args)
-		want    []*models.FlowData
+		want    []*models.FlowDetail
 		wantErr error
 	}{
 		{
@@ -159,11 +160,11 @@ func TestDtdRepositorySql_FindFlowsForStations(t *testing.T) {
 				dst: "5433",
 			},
 			setUp: func(a args) {
-				rows := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"}).
-					AddRow("136210", "5432", "5433", "01000", "R", newDateField(2020, 1, 3), infiniteTime)
+				rows := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "direction", "start_date", "end_date", "route_code", "route_desc"}).
+					AddRow("136210", "5432", "5433", "R", newDateField(2020, 1, 3), infiniteTime, "01000", ".")
 				mock.ExpectQuery(regexp.QuoteMeta(findFlowsForStationsQuery)).WithArgs("5432", "5433").WillReturnRows(rows)
 			},
-			want: []*models.FlowData{
+			want: []*models.FlowDetail{
 				{
 					FlowID:          "136210",
 					OriginCode:      "5432",
@@ -172,6 +173,7 @@ func TestDtdRepositorySql_FindFlowsForStations(t *testing.T) {
 					Direction:       "R",
 					StartDate:       newDateField(2020, 1, 3),
 					EndDate:         infiniteTime,
+					RouteDesc:       ".",
 				},
 			},
 		},
@@ -185,13 +187,13 @@ func TestDtdRepositorySql_FindFlowsForStations(t *testing.T) {
 				dst: "5432",
 			},
 			setUp: func(a args) {
-				firstQuery := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"})
+				firstQuery := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "direction", "start_date", "end_date", "route_code", "route_desc"})
 				mock.ExpectQuery(regexp.QuoteMeta(findFlowsForStationsQuery)).WithArgs("5433", "5432").WillReturnRows(firstQuery)
-				secondQuery := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"}).
-					AddRow("136210", "5432", "5433", "01000", "R", newDateField(2020, 1, 3), infiniteTime)
+				secondQuery := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "direction", "start_date", "end_date", "route_code", "route_desc"}).
+					AddRow("136210", "5432", "5433", "R", newDateField(2020, 1, 3), infiniteTime, "01000", ".")
 				mock.ExpectQuery(regexp.QuoteMeta(findFlowsForStationsDirectionQuery)).WithArgs("5432", "5433").WillReturnRows(secondQuery)
 			},
-			want: []*models.FlowData{
+			want: []*models.FlowDetail{
 				{
 					FlowID:          "136210",
 					OriginCode:      "5432",
@@ -200,6 +202,7 @@ func TestDtdRepositorySql_FindFlowsForStations(t *testing.T) {
 					Direction:       "R",
 					StartDate:       newDateField(2020, 1, 3),
 					EndDate:         infiniteTime,
+					RouteDesc:       ".",
 				},
 			},
 		},
@@ -213,7 +216,7 @@ func TestDtdRepositorySql_FindFlowsForStations(t *testing.T) {
 				dst: "5432",
 			},
 			setUp: func(a args) {
-				firstQuery := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"})
+				firstQuery := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "direction", "start_date", "end_date", "route_code", "route_desc"})
 				mock.ExpectQuery(regexp.QuoteMeta(findFlowsForStationsQuery)).WithArgs("5433", "5432").WillReturnRows(firstQuery)
 				mock.ExpectQuery(regexp.QuoteMeta(findFlowsForStationsDirectionQuery)).WithArgs("5432", "5433").WillReturnRows(firstQuery)
 			},
@@ -261,7 +264,7 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 		fields  fields
 		args    args
 		setUp   func(args)
-		want    []*models.FlowData
+		want    []*models.FlowDetail
 		wantErr error
 	}{
 		{
@@ -273,14 +276,14 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 				nlc: "5433",
 			},
 			setUp: func(a args) {
-				rows := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"}).
-					AddRow("6145", "0258", "5433", "00700", "R", newDateField(2020, 1, 2), infiniteTime).
-					AddRow("44089", "1402", "5433", "00000", "S", newDateField(2020, 5, 18), infiniteTime).
-					AddRow("135925", "5433", "5417", "01000", "S", newDateField(2020, 1, 2), infiniteTime).
-					AddRow("132215", "5433", "5611", "00700", "R", newDateField(2020, 1, 2), infiniteTime)
+				rows := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "direction", "start_date", "end_date", "route_code", "route_desc"}).
+					AddRow("6145", "0258", "5433", "R", newDateField(2020, 1, 2), infiniteTime, "00700", "NOT VIA LONDON").
+					AddRow("44089", "1402", "5433", "S", newDateField(2020, 5, 18), infiniteTime, "00000", "ANY PERMITTED").
+					AddRow("135925", "5433", "5417", "S", newDateField(2020, 1, 2), infiniteTime, "01000", ".").
+					AddRow("132215", "5433", "5611", "R", newDateField(2020, 1, 2), infiniteTime, "00700", "NOT VIA LONDON")
 				mock.ExpectQuery(regexp.QuoteMeta(findAllFlowsForStationQuery)).WithArgs("5433").WillReturnRows(rows)
 			},
-			want: []*models.FlowData{
+			want: []*models.FlowDetail{
 				{
 					FlowID:          "6145",
 					OriginCode:      "0258",
@@ -289,6 +292,7 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 					Direction:       "R",
 					StartDate:       newDateField(2020, 1, 2),
 					EndDate:         infiniteTime,
+					RouteDesc:       "NOT VIA LONDON",
 				},
 				{
 					FlowID:          "44089",
@@ -298,6 +302,7 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 					Direction:       "S",
 					StartDate:       newDateField(2020, 5, 18),
 					EndDate:         infiniteTime,
+					RouteDesc:       "ANY PERMITTED",
 				},
 				{
 					FlowID:          "135925",
@@ -307,6 +312,7 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 					Direction:       "S",
 					StartDate:       newDateField(2020, 1, 2),
 					EndDate:         infiniteTime,
+					RouteDesc:       ".",
 				},
 				{
 					FlowID:          "132215",
@@ -316,6 +322,7 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 					Direction:       "R",
 					StartDate:       newDateField(2020, 1, 2),
 					EndDate:         infiniteTime,
+					RouteDesc:       "NOT VIA LONDON",
 				},
 			},
 		},
