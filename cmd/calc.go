@@ -36,5 +36,5 @@ var calcCmd = &cobra.Command{
 }
 
 func calc(fromStation, toStation string) error {
-
+	return nil
 }

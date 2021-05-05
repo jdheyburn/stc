@@ -27,6 +27,7 @@ func Execute() error {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+	return nil
 }
 
 func init() {
