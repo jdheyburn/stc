@@ -19,7 +19,7 @@ const (
 	findFlowsForStationsQuery          = "SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE()"
 	findFlowsForStationsDirectionQuery = "SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE() AND direction = 'R'"
 	findAllFlowsForStationQuery        = ""
-	findFaresForFlowQuery              = "SELECT DISTINCT fare.id,fare.flow_id,fare.ticket_code,fare.fare,fare.restriction_code,ticket_type.description,ticket_type.tkt_class as ticket_class FROM `fare` LEFT JOIN ticket_type on fare.ticket_code = ticket_type.ticket_code WHERE fare.flow_id IN (?) AND ticket_type.start_date <= CURDATE() AND ticket_type.end_date > CURDATE()"
+	findFaresForFlowQuery              = "SELECT fare.id,fare.flow_id,fare.ticket_code,fare.fare,fare.restriction_code,ticket_type.description as ticket_description,ticket_type.tkt_class as ticket_class,ticket_type.tkt_type as ticket_type,restriction_header.description as restriction_desc,restriction_header.desc_out as restriction_desc_out,restriction_header.desc_ret as restriction_desc_rtn FROM `fare` LEFT JOIN ticket_type on fare.ticket_code = ticket_type.ticket_code LEFT JOIN restriction_header on fare.restriction_code = restriction_header.restriction_code WHERE fare.flow_id IN (?) AND ticket_type.start_date <= CURDATE() AND ticket_type.end_date > CURDATE()"
 )
 
 func newDateField(year int, month time.Month, day int) *time.Time {
@@ -60,7 +60,7 @@ func TestDtdRepositorySql_FindStationByCrs_Single(t *testing.T) {
 		panic(err)
 	}
 
-	expected := []*models.StationData{
+	expected := []*models.LocationData{
 		{
 			UIC:         "7054330",
 			StartDate:   newDateField(2020, 9, 9),
@@ -118,7 +118,7 @@ func TestDtdRepositorySql_FindStationsByCrs(t *testing.T) {
 		fields  fields
 		args    args
 		setUp   func(args)
-		want    []*models.StationData
+		want    []*models.LocationData
 		wantErr error
 	}{
 		{
@@ -134,7 +134,7 @@ func TestDtdRepositorySql_FindStationsByCrs(t *testing.T) {
 					AddRow("7054330", "5433", "SANDERSTEAD", "SNR", "5433", newDateField(2020, 9, 9), infiniteTime)
 				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQuery)).WithArgs("SNR").WillReturnRows(rows)
 			},
-			want: []*models.StationData{
+			want: []*models.LocationData{
 				{
 					UIC:         "7054330",
 					StartDate:   newDateField(2020, 9, 9),
@@ -377,7 +377,7 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 			},
 		},
 		{
-			name: "should return multiple flows for stations",
+			name: "should return not found error given no flows",
 			fields: fields{
 				db: db,
 			},
@@ -385,11 +385,7 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 				nlc: "5433",
 			},
 			setUp: func(a args) {
-				rows := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"}).
-					AddRow("6145", "0258", "5433", "00700", "R", newDateField(2020, 1, 2), infiniteTime).
-					AddRow("44089", "1402", "5433", "00000", "S", newDateField(2020, 5, 18), infiniteTime).
-					AddRow("135925", "5433", "5417", "01000", "S", newDateField(2020, 1, 2), infiniteTime).
-					AddRow("132215", "5433", "5611", "00700", "R", newDateField(2020, 1, 2), infiniteTime)
+				rows := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"})
 				mock.ExpectQuery(regexp.QuoteMeta(findAllFlowsForStationQuery)).WithArgs("5433").WillReturnRows(rows)
 			},
 			wantErr: ErrNotFound,
@@ -448,49 +444,59 @@ func TestDtdRepositorySql_FindFaresForFlow(t *testing.T) {
 				flowId: 136210,
 			},
 			setUp: func(a args) {
-				rows := sqlmock.NewRows([]string{"id", "flow_id", "ticket_code", "fare", "restriction_code", "description", "ticket_class"}).
-					AddRow(1051573, 136210, "0AE", 450, nil, "SMART SDR", 2).
-					AddRow(1051574, 136210, "0AF", 270, nil, "SMART SDS", 2).
-					AddRow(1051578, 136210, "PAP", 240, "PF", "PAYG PEAK INFO", 2).
-					AddRow(1051579, 136210, "POP", 220, "PG", "PAYG OFFPK INFO", 2)
+				rows := sqlmock.NewRows([]string{"id", "flow_id", "ticket_code", "fare", "restriction_code", "ticket_description", "ticket_class", "ticket_type", "restriction_desc", "restriction_desc_out", "restriction_desc_rtn"}).
+					AddRow(1051573, 136210, "0AE", 450, nil, "SMART SDR", 2, "R", nil, nil, nil).
+					AddRow(1051574, 136210, "0AF", 270, nil, "SMART SDS", 2, "S", nil, nil, nil).
+					AddRow(1051578, 136210, "PAP", 240, "PF", "PAYG PEAK INFO", 2, "S", "PAYG PEAK INFO", "PAY AS YOU GO PEAK - OYSTER CARD REQUIRED", "PAY AS YOU GO PEAK - OYSTER CARD REQUIRED").
+					AddRow(1051579, 136210, "POP", 220, "PG", "PAYG OFFPK INFO", 2, "S", "PAYG OFF-PEAK INFO", "PAY AS YOU GO OFF-PEAK - OYSTER CARD REQUIRED", "PAY AS YOU GO OFF-PEAK - OYSTER CARD REQUIRED")
 				mock.ExpectQuery(regexp.QuoteMeta(findFaresForFlowQuery)).WithArgs(136210).WillReturnRows(rows)
 			},
 			wantFares: []*models.FareDetail{
 				{
-					Model:           gorm.Model{ID: 1051573},
-					FlowID:          136210,
-					TicketCode:      "0AE",
-					Fare:            450,
-					RestrictionCode: "",
-					Description:     "SMART SDR",
-					TicketClass:     2,
+					Model:             gorm.Model{ID: 1051573},
+					FlowID:            136210,
+					TicketCode:        "0AE",
+					Fare:              450,
+					RestrictionCode:   "",
+					TicketDescription: "SMART SDR",
+					TicketClass:       2,
+					TicketType:        "R",
 				},
 				{
-					Model:           gorm.Model{ID: 1051574},
-					FlowID:          136210,
-					TicketCode:      "0AF",
-					Fare:            270,
-					RestrictionCode: "",
-					Description:     "SMART SDS",
-					TicketClass:     2,
+					Model:             gorm.Model{ID: 1051574},
+					FlowID:            136210,
+					TicketCode:        "0AF",
+					Fare:              270,
+					RestrictionCode:   "",
+					TicketDescription: "SMART SDS",
+					TicketClass:       2,
+					TicketType:        "S",
 				},
 				{
-					Model:           gorm.Model{ID: 1051578},
-					FlowID:          136210,
-					TicketCode:      "PAP",
-					Fare:            240,
-					RestrictionCode: "PF",
-					Description:     "PAYG PEAK INFO",
-					TicketClass:     2,
+					Model:              gorm.Model{ID: 1051578},
+					FlowID:             136210,
+					TicketCode:         "PAP",
+					Fare:               240,
+					RestrictionCode:    "PF",
+					TicketDescription:  "PAYG PEAK INFO",
+					TicketClass:        2,
+					TicketType:         "S",
+					RestrictionDesc:    "PAYG PEAK INFO",
+					RestrictionDescOut: "PAY AS YOU GO PEAK - OYSTER CARD REQUIRED",
+					RestrictionDescRtn: "PAY AS YOU GO PEAK - OYSTER CARD REQUIRED",
 				},
 				{
-					Model:           gorm.Model{ID: 1051579},
-					FlowID:          136210,
-					TicketCode:      "POP",
-					Fare:            220,
-					RestrictionCode: "PG",
-					Description:     "PAYG OFFPK INFO",
-					TicketClass:     2,
+					Model:              gorm.Model{ID: 1051579},
+					FlowID:             136210,
+					TicketCode:         "POP",
+					Fare:               220,
+					RestrictionCode:    "PG",
+					TicketDescription:  "PAYG OFFPK INFO",
+					TicketClass:        2,
+					TicketType:         "S",
+					RestrictionDesc:    "PAYG OFF-PEAK INFO",
+					RestrictionDescOut: "PAY AS YOU GO OFF-PEAK - OYSTER CARD REQUIRED",
+					RestrictionDescRtn: "PAY AS YOU GO OFF-PEAK - OYSTER CARD REQUIRED",
 				},
 			},
 		},

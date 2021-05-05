@@ -45,10 +45,11 @@ func NewDtdRepositorySql(options *DtdSqlDBOptions) (*DtdRepositorySql, error) {
 	}, nil
 }
 
-// FindStationsByCrs returns a location from the given CRS code
-func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) ([]*models.StationData, error) {
+// FindStationsByCrs returns locations from the given CRS code
+// TODO how to handle multiple locations
+func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) ([]*models.LocationData, error) {
 
-	var stations []*models.StationData
+	var stations []*models.LocationData
 	err := dtd.db.Unscoped().
 		Select("uic", "nlc", "description", "crs", "fare_group", "start_date", "end_date").
 		Where("crs = ? AND start_date <= CURDATE() AND end_date > CURDATE()", crs).
@@ -59,11 +60,17 @@ func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) ([]*models.StationDat
 		return nil, errors.Wrapf(err, "querying for location %s:", crs)
 	}
 
-	if len(stations) == 0 {
-		return nil, ErrNotFound
+	if len(stations) > 0 {
+		return stations, nil
 	}
 
-	return stations, nil
+	// Check to see if this is a grouped station (i.e. LBG -> London Terminals)
+	// Query is in dbeaver
+	// err := dtd.db.Unscoped().
+	// Select()
+
+	return nil, ErrNotFound
+
 }
 
 func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) ([]*models.FlowData, error) {
@@ -88,6 +95,7 @@ func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) ([]*model
 }
 
 // FindFlowsForStations returns all flows between two NLC codes
+// TODO need to find flows where the second query is not in direction R
 func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) ([]*models.FlowData, error) {
 
 	reversed := false
@@ -114,8 +122,6 @@ func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) ([]*models.Fl
 	return nil, ErrNotFound
 }
 
-// TODO need to find flows where the second query is not in direction R
-
 func (dtd *DtdRepositorySql) FindAllFlowsForStation(nlc string) ([]*models.FlowData, error) {
 
 	var flows []*models.FlowData
@@ -139,8 +145,21 @@ func (dtd *DtdRepositorySql) FindAllFlowsForStation(nlc string) ([]*models.FlowD
 func (dtd *DtdRepositorySql) FindFaresForFlow(flowId uint) (fares []*models.FareDetail, err error) {
 
 	err = dtd.db.Unscoped().Model(&models.FareData{}).
-		Distinct("fare.id", "fare.flow_id", "fare.ticket_code", "fare.fare", "fare.restriction_code", "ticket_type.description", "ticket_type.tkt_class as ticket_class").
+		Select(
+			"fare.id",
+			"fare.flow_id",
+			"fare.ticket_code",
+			"fare.fare",
+			"fare.restriction_code",
+			"ticket_type.description as ticket_description",
+			"ticket_type.tkt_class as ticket_class",
+			"ticket_type.tkt_type as ticket_type",
+			"restriction_header.description as restriction_desc",
+			"restriction_header.desc_out as restriction_desc_out",
+			"restriction_header.desc_ret as restriction_desc_rtn",
+		).
 		Joins("LEFT JOIN ticket_type on fare.ticket_code = ticket_type.ticket_code").
+		Joins("LEFT JOIN restriction_header on fare.restriction_code = restriction_header.restriction_code").
 		Where("fare.flow_id IN (?) AND ticket_type.start_date <= CURDATE() AND ticket_type.end_date > CURDATE()", flowId).
 		Scan(&fares).
 		Error

@@ -17,7 +17,7 @@ var (
 	rootCmd = &cobra.Command{
 		Use:   "stc",
 		Short: "Calculate UK season ticket",
-		Long: `TBC`,
+		Long:  `TBC`,
 	}
 )
 
@@ -72,5 +72,3 @@ func initConfig() {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
 	}
 }
-
-
