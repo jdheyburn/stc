@@ -73,17 +73,26 @@ func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) ([]*models.LocationDa
 
 }
 
-func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) ([]*models.FlowData, error) {
+func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) (flows []*models.FlowDetail, err error) {
 
 	var directionFilter string
 	if reversed {
-		directionFilter = " AND direction = 'R'"
+		directionFilter = " AND flow.direction = 'R'"
 	}
 
-	var flows []*models.FlowData
-	err := dtd.db.Unscoped().
-		Select("flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date").
-		Where(fmt.Sprintf("origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE()%s", directionFilter), src, dst).
+	err = dtd.db.Unscoped().Model(&models.FlowData{}).
+		Select(
+			"flow.flow_id",
+			"flow.origin_code",
+			"flow.destination_code",
+			"flow.direction",
+			"flow.start_date",
+			"flow.end_date",
+			"flow.route_code",
+			"route.description as route_desc",
+		).
+		Joins("LEFT JOIN route on flow.route_code = route.route_code").
+		Where(fmt.Sprintf("flow.origin_code = ? AND flow.destination_code = ? AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE()%s", directionFilter), src, dst).
 		Find(&flows).
 		Error
 
@@ -96,10 +105,10 @@ func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) ([]*model
 
 // FindFlowsForStations returns all flows between two NLC codes
 // TODO need to find flows where the second query is not in direction R
-func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) ([]*models.FlowData, error) {
+func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) (flows []*models.FlowDetail, err error) {
 
 	reversed := false
-	flows, err := dtd.findFlows(src, dst, reversed)
+	flows, err = dtd.findFlows(src, dst, reversed)
 	if err != nil {
 		return nil, err
 	}
@@ -126,16 +135,16 @@ func (dtd *DtdRepositorySql) FindAllFlowsForStation(nlc string) (flows []*models
 
 	err = dtd.db.Unscoped().Model(&models.FlowData{}).
 		Select(
-			"flow.flow_id", 
-			"flow.origin_code", 
-			"flow.destination_code", 
-			"flow.direction", 
-			"flow.start_date", 
+			"flow.flow_id",
+			"flow.origin_code",
+			"flow.destination_code",
+			"flow.direction",
+			"flow.start_date",
 			"flow.end_date",
 			"flow.route_code",
 			"route.description as route_desc",
-			).
-			Joins("LEFT JOIN route on flow.route_code = route.route_code").
+		).
+		Joins("LEFT JOIN route on flow.route_code = route.route_code").
 		Where("origin_code = ? OR destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE()", nlc).
 		Find(&flows).
 		Error
