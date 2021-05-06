@@ -375,7 +375,7 @@ func TestDtdRepositorySql_FindFaresForFlow(t *testing.T) {
 		db *gorm.DB
 	}
 	type args struct {
-		flowId uint
+		flowId uint64
 	}
 	tests := []struct {
 		name      string
