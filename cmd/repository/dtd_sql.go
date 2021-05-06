@@ -2,12 +2,15 @@ package repository
 
 import (
 	"fmt"
+	"log"
+	"os"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jdheyburn/stc/cmd/models"
 	"github.com/pkg/errors"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	glogger "gorm.io/gorm/logger"
 )
 
 // ErrNotFound is returned when a record cannot be found
@@ -32,7 +35,19 @@ func NewDtdRepositorySql(options *DtdSqlDBOptions) (*DtdRepositorySql, error) {
 		options.DBName,
 	)
 
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	dbLogger := glogger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags),
+		glogger.Config{
+			LogLevel: glogger.Info,
+			Colorful: true,
+		},
+	)
+
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
+		Logger: dbLogger,
+	})
+
+	// db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 
 	if err != nil {
 		return nil, errors.Wrap(err, "creating sql conn")
@@ -47,12 +62,15 @@ func NewDtdRepositorySql(options *DtdSqlDBOptions) (*DtdRepositorySql, error) {
 
 // FindStationsByCrs returns locations from the given CRS code
 // TODO how to handle multiple locations
-func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) ([]*models.LocationData, error) {
+func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) (stations []*models.LocationData, err error) {
 
-	var stations []*models.LocationData
-	err := dtd.db.Unscoped().
+	logger.Infof("looking up CRS %v", crs)
+
+	err = dtd.db.Unscoped().
 		Select("uic", "nlc", "description", "crs", "fare_group", "start_date", "end_date").
-		Where("crs = ? AND start_date <= CURDATE() AND end_date > CURDATE()", crs).
+		Where("crs = ?", crs).
+		Where("start_date <= CURDATE()").
+		Where("end_date > CURDATE()").
 		Find(&stations).
 		Error
 
@@ -61,6 +79,7 @@ func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) ([]*models.LocationDa
 	}
 
 	if len(stations) > 0 {
+		logger.Infof("found %v from crs %v", stations[0].Description, crs)
 		return stations, nil
 	}
 
@@ -75,12 +94,7 @@ func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) ([]*models.LocationDa
 
 func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) (flows []*models.FlowDetail, err error) {
 
-	var directionFilter string
-	if reversed {
-		directionFilter = " AND flow.direction = 'R'"
-	}
-
-	err = dtd.db.Unscoped().Model(&models.FlowData{}).
+	chain := dtd.db.Unscoped().Model(&models.FlowData{}).
 		Select(
 			"flow.flow_id",
 			"flow.origin_code",
@@ -92,9 +106,18 @@ func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) (flows []
 			"route.description as route_desc",
 		).
 		Joins("LEFT JOIN route on flow.route_code = route.route_code").
-		Where(fmt.Sprintf("flow.origin_code = ? AND flow.destination_code = ? AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE()%s", directionFilter), src, dst).
-		Find(&flows).
-		Error
+		Where("flow.origin_code = ?", src).
+		Where("flow.destination_code = ?", dst).
+		Where("flow.start_date <= CURDATE()").
+		Where("flow.end_date > CURDATE()").
+		Where("route.start_date <= CURDATE()").
+		Where("route.end_date > CURDATE()")
+
+	if reversed {
+		chain = chain.Where("flow.direction = 'R'")
+	}
+
+	err = chain.Find(&flows).Error
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "querying flows for source: %s dest: %s", src, dst)
@@ -107,6 +130,8 @@ func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) (flows []
 // TODO need to find flows where the second query is not in direction R
 func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) (flows []*models.FlowDetail, err error) {
 
+	logger.Infof("searching for all flows between src %v and dst %v", src, dst)
+
 	reversed := false
 	flows, err = dtd.findFlows(src, dst, reversed)
 	if err != nil {
@@ -114,10 +139,11 @@ func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) (flows []*mod
 	}
 
 	if len(flows) > 0 {
+		logger.Infof("returning %v flows between src %v and dst %v", len(flows), src, dst)
 		return flows, nil
 	}
 
-	// Else we didn't get any results, query for the other way round
+	logger.Warnf("found no flows for src %v and dst %v - searching flows in the reverse direction", src, dst)
 	reversed = true
 	flows, err = dtd.findFlows(dst, src, reversed)
 	if err != nil {
@@ -125,6 +151,7 @@ func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) (flows []*mod
 	}
 
 	if len(flows) > 0 {
+		logger.Infof("returning %v flows between src %v and dst %v", len(flows), src, dst)
 		return flows, nil
 	}
 
@@ -133,6 +160,7 @@ func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) (flows []*mod
 
 func (dtd *DtdRepositorySql) FindAllFlowsForStation(nlc string) (flows []*models.FlowDetail, err error) {
 
+	logger.Infof("searching for all flows for nlc %v", nlc)
 	err = dtd.db.Unscoped().Model(&models.FlowData{}).
 		Select(
 			"flow.flow_id",
@@ -145,7 +173,9 @@ func (dtd *DtdRepositorySql) FindAllFlowsForStation(nlc string) (flows []*models
 			"route.description as route_desc",
 		).
 		Joins("LEFT JOIN route on flow.route_code = route.route_code").
-		Where("origin_code = ? OR destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE()", nlc).
+		Where(dtd.db.Where("origin_code = ?", nlc).Or("destination_code = ?", nlc)).
+		Where("start_date <= CURDATE()").
+		Where("end_date > CURDATE()").
 		Find(&flows).
 		Error
 
@@ -157,10 +187,14 @@ func (dtd *DtdRepositorySql) FindAllFlowsForStation(nlc string) (flows []*models
 		return nil, ErrNotFound
 	}
 
+	logger.Infof("returning %v flows for station nlc &v", len(flows), nlc)
+
 	return flows, nil
 }
 
-func (dtd *DtdRepositorySql) FindFaresForFlow(flowId uint) (fares []*models.FareDetail, err error) {
+func (dtd *DtdRepositorySql) FindFaresForFlow(flowId uint64) (fares []*models.FareDetail, err error) {
+
+	logger.Infof("finding fares for flow Id %v", flowId)
 
 	err = dtd.db.Unscoped().Model(&models.FareData{}).
 		Select(
@@ -178,7 +212,9 @@ func (dtd *DtdRepositorySql) FindFaresForFlow(flowId uint) (fares []*models.Fare
 		).
 		Joins("LEFT JOIN ticket_type on fare.ticket_code = ticket_type.ticket_code").
 		Joins("LEFT JOIN restriction_header on fare.restriction_code = restriction_header.restriction_code").
-		Where("fare.flow_id IN (?) AND ticket_type.start_date <= CURDATE() AND ticket_type.end_date > CURDATE()", flowId).
+		Where("fare.flow_id IN (?)", flowId).
+		Where("ticket_type.start_date <= CURDATE()").
+		Where("ticket_type.end_date > CURDATE()").
 		Scan(&fares).
 		Error
 
@@ -189,6 +225,8 @@ func (dtd *DtdRepositorySql) FindFaresForFlow(flowId uint) (fares []*models.Fare
 	if len(fares) == 0 {
 		return nil, ErrNotFound
 	}
+
+	logger.Infof("returning %v fares for flow Id &v", len(fares), flowId)
 
 	return fares, nil
 }

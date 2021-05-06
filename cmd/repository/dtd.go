@@ -6,12 +6,14 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var logger, _ = zap.NewDevelopment()
+// var logger, _ = zap.NewDevelopment()
+var logger *zap.SugaredLogger
 
 func init() {
 	config := zap.NewDevelopmentConfig()
 	config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	logger, _ = config.Build()
+	slogger, _ := config.Build()
+	logger = slogger.Sugar()
 }
 
 // DtdRepository provides an abstraction between databases

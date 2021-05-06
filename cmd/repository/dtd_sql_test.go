@@ -16,11 +16,10 @@ import (
 
 const (
 	findStationsByCrsQuery             = "SELECT `uic`,`nlc`,`description`,`crs`,`fare_group`,`start_date`,`end_date` FROM `location` WHERE crs = ? AND start_date <= CURDATE() AND end_date > CURDATE()"
-	findFlowsForStationsQuery          = "SELECT flow.flow_id,flow.origin_code,flow.destination_code,flow.direction,flow.start_date,flow.end_date,flow.route_code,route.description as route_desc FROM `flow` LEFT JOIN route on flow.route_code = route.route_code WHERE flow.origin_code = ? AND flow.destination_code = ? AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE()"
-	findFlowsForStationsDirectionQuery = "SELECT flow.flow_id,flow.origin_code,flow.destination_code,flow.direction,flow.start_date,flow.end_date,flow.route_code,route.description as route_desc FROM `flow` LEFT JOIN route on flow.route_code = route.route_code WHERE flow.origin_code = ? AND flow.destination_code = ? AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE() AND flow.direction = 'R'"
-	// findFlowsForStationsDirectionQuery = "SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = ? AND destination_code = ? AND start_date <= CURDATE() AND end_date > CURDATE() AND direction = 'R'"
-	findAllFlowsForStationQuery = ""
-	findFaresForFlowQuery       = "SELECT fare.id,fare.flow_id,fare.ticket_code,fare.fare,fare.restriction_code,ticket_type.description as ticket_description,ticket_type.tkt_class as ticket_class,ticket_type.tkt_type as ticket_type,restriction_header.description as restriction_desc,restriction_header.desc_out as restriction_desc_out,restriction_header.desc_ret as restriction_desc_rtn FROM `fare` LEFT JOIN ticket_type on fare.ticket_code = ticket_type.ticket_code LEFT JOIN restriction_header on fare.restriction_code = restriction_header.restriction_code WHERE fare.flow_id IN (?) AND ticket_type.start_date <= CURDATE() AND ticket_type.end_date > CURDATE()"
+	findFlowsForStationsQuery          = "SELECT flow.flow_id,flow.origin_code,flow.destination_code,flow.direction,flow.start_date,flow.end_date,flow.route_code,route.description as route_desc FROM `flow` LEFT JOIN route on flow.route_code = route.route_code WHERE (flow.origin_code = ?) AND flow.destination_code = ? AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE()"
+	findFlowsForStationsDirectionQuery = "SELECT flow.flow_id,flow.origin_code,flow.destination_code,flow.direction,flow.start_date,flow.end_date,flow.route_code,route.description as route_desc FROM `flow` LEFT JOIN route on flow.route_code = route.route_code WHERE (flow.origin_code = ?) AND flow.destination_code = ? AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE() AND flow.direction = 'R'"
+	findAllFlowsForStationQuery        = "SELECT flow.flow_id,flow.origin_code,flow.destination_code,flow.direction,flow.start_date,flow.end_date,flow.route_code,route.description as route_desc FROM `flow` LEFT JOIN route on flow.route_code = route.route_code WHERE ((origin_code = ?) OR destination_code = ?) AND start_date <= CURDATE() AND end_date > CURDATE()"
+	findFaresForFlowQuery              = "SELECT fare.id,fare.flow_id,fare.ticket_code,fare.fare,fare.restriction_code,ticket_type.description as ticket_description,ticket_type.tkt_class as ticket_class,ticket_type.tkt_type as ticket_type,restriction_header.description as restriction_desc,restriction_header.desc_out as restriction_desc_out,restriction_header.desc_ret as restriction_desc_rtn FROM `fare` LEFT JOIN ticket_type on fare.ticket_code = ticket_type.ticket_code LEFT JOIN restriction_header on fare.restriction_code = restriction_header.restriction_code WHERE fare.flow_id IN (?) AND ticket_type.start_date <= CURDATE() AND ticket_type.end_date > CURDATE()"
 )
 
 func newDateField(year int, month time.Month, day int) *time.Time {
@@ -281,7 +280,7 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 					AddRow("44089", "1402", "5433", "S", newDateField(2020, 5, 18), infiniteTime, "00000", "ANY PERMITTED").
 					AddRow("135925", "5433", "5417", "S", newDateField(2020, 1, 2), infiniteTime, "01000", ".").
 					AddRow("132215", "5433", "5611", "R", newDateField(2020, 1, 2), infiniteTime, "00700", "NOT VIA LONDON")
-				mock.ExpectQuery(regexp.QuoteMeta(findAllFlowsForStationQuery)).WithArgs("5433").WillReturnRows(rows)
+				mock.ExpectQuery(regexp.QuoteMeta(findAllFlowsForStationQuery)).WithArgs("5433", "5433").WillReturnRows(rows)
 			},
 			want: []*models.FlowDetail{
 				{
@@ -336,7 +335,7 @@ func TestDtdRepositorySql_FindAllFlowsForStation(t *testing.T) {
 			},
 			setUp: func(a args) {
 				rows := sqlmock.NewRows([]string{"flow_id", "origin_code", "destination_code", "route_code", "direction", "start_date", "end_date"})
-				mock.ExpectQuery(regexp.QuoteMeta(findAllFlowsForStationQuery)).WithArgs("5433").WillReturnRows(rows)
+				mock.ExpectQuery(regexp.QuoteMeta(findAllFlowsForStationQuery)).WithArgs("5433", "5433").WillReturnRows(rows)
 			},
 			wantErr: ErrNotFound,
 		},
@@ -375,7 +374,7 @@ func TestDtdRepositorySql_FindFaresForFlow(t *testing.T) {
 		db *gorm.DB
 	}
 	type args struct {
-		flowId uint
+		flowId uint64
 	}
 	tests := []struct {
 		name      string
