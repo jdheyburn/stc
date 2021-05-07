@@ -16,23 +16,30 @@ select uic, start_date, end_date, nlc, description, crs, fare_group from locatio
 -- Step 2: Get flows between the two NLCs
 
 -- EGR -> SNR
-SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = 5486 AND destination_code = 5433 AND start_date <= CURDATE() AND end_date > CURDATE()
 
-|flow_id|origin_code|destination_code|route_code|direction|start_date|end_date  |
-|-------|-----------|----------------|----------|---------|----------|----------|
-|137711 |5486       |5433            |01000     |S        |2020-01-02|2999-12-31|
+SELECT flow.flow_id,flow.origin_code,flow.destination_code,flow.direction,flow.start_date,flow.end_date,flow.route_code,route.description as route_desc 
+FROM `flow`
+LEFT JOIN route on flow.route_code = route.route_code 
+WHERE flow.origin_code = 5486 AND flow.destination_code = 5433 AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE()
 
+
+|flow_id|origin_code|destination_code|direction|start_date|end_date  |route_code|route_desc      |
+|-------|-----------|----------------|---------|----------|----------|----------|----------------|
+|137711 |5486       |5433            |S        |2020-01-02|2999-12-31|01000     |.               |
 
 
 -- SNR -> EGR
-SELECT `flow_id`,`origin_code`,`destination_code`,`route_code`,`direction`,`start_date`,`end_date` FROM `flow` WHERE origin_code = 5433 AND destination_code = 5486 AND start_date <= CURDATE() AND end_date > CURDATE()
 
-|flow_id|origin_code|destination_code|route_code|direction|start_date|end_date  |
-|-------|-----------|----------------|----------|---------|----------|----------|
-|136991 |5433       |5486            |01000     |S        |2020-01-02|2999-12-31|
+SELECT flow.flow_id,flow.origin_code,flow.destination_code,flow.direction,flow.start_date,flow.end_date,flow.route_code,route.description as route_desc 
+FROM `flow`
+LEFT JOIN route on flow.route_code = route.route_code 
+WHERE flow.origin_code = 5433 AND flow.destination_code = 5486 AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE()
 
 
--- 01000 route code is meaningless? select * from route where route_code = '01000'  AND start_date <= CURDATE() AND end_date > CURDATE();
+
+|flow_id|origin_code|destination_code|direction|start_date|end_date  |route_code|route_desc      |
+|-------|-----------|----------------|---------|----------|----------|----------|----------------|
+|136991 |5433       |5486            |S        |2020-01-02|2999-12-31|01000     |.               |
 
 
 -- Step 3: Get fares for the given flow ID
@@ -114,7 +121,7 @@ WHERE fare.flow_id IN (136991) AND ticket_type.start_date <= CURDATE() AND ticke
 
 
 -- Season tickets are calculated from 7DS for 2nd class and 7DF for 1st class
-
+-- Steps 4 and 5 hidden; they pick out 7DS above and then perform the calculations
 
 
 
@@ -143,17 +150,9 @@ select * from restriction_header re where restriction_code = 'PG';
 
 
 
-select distinct fare.id, fare.flow_id ,fare.ticket_code, fare.fare, fare.restriction_code, ticket_type.description 
-from fare
-left join ticket_type on fare.ticket_code = ticket_type.ticket_code
-where fare.flow_id = 136210;
 
 
-select count(*) from fare limit 10;
-
-
-
-select * from flow where origin_code = '1072' and destination_code = '5433';
+select * from flow where origin_code = '1072' or destination_code = '1072';
 
 
 with f as (
@@ -165,7 +164,7 @@ select distinct f.c, location.description from f
 inner join location on location.nlc = f.c
 order by description ;
 
-select uic, start_date, end_date, nlc, description, crs, fare_group from location where crs = 'LBG' and start_date <= CURDATE() and end_date > CURDATE();
+select uic, start_date, end_date, nlc, description, crs, fare_group from location where crs = 'SNR' and start_date <= CURDATE() and end_date > CURDATE();
 -- SNR uic 7054330
 
 select uic, start_date, end_date, nlc, description, crs, fare_group from location where uic = '7000320' and start_date <= CURDATE() and end_date > CURDATE();
@@ -173,19 +172,30 @@ select uic, start_date, end_date, nlc, description, crs, fare_group from locatio
 
 select * from location_group where group_uic_code = '7010720';
 
-select * from location_group_member where member_crs_code = 'SNR';
+select * from location_group_member where member_crs_code = 'VIC';
 
 -- select location_group_member.group_uic_code, location_group.description as group_description
 -- TODO alter below query so that it can be used for grouped and non-grouped stations
 
-select location.uic, location.nlc, location.description, location_group_member.member_crs_code, location.fare_group, location.start_date, location.end_date
+select 
+location_group_member.member_uic_code
+, location.nlc
+, location.description
+, location_group_member.member_crs_code
+, location_group.description as group_description
+, location_group_member.group_uic_code 
+,location.fare_group
+, location.start_date
+, location.end_date
 from location_group_member 
 left join location_group on location_group_member.group_uic_code  = location_group.group_uic_code 
 left join location on location_group.group_uic_code = location.uic 
-where location_group_member.member_crs_code = 'MCV' 
+where location_group_member.member_crs_code = 'VIC' 
 and location_group_member.end_date > CURDATE()
 and location_group.start_date <= CURDATE() and location_group.end_date > CURDATE()
 and location.start_date <= CURDATE() and location.end_date > CURDATE();
+
+
 
 
 
