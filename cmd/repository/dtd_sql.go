@@ -82,63 +82,28 @@ func NewDtdRepositorySql(options *DtdSqlDBOptions) (*DtdRepositorySql, error) {
 }
 
 // FindStationsByCrs returns locations from the given CRS code
-func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) (*models.LocationWithGroups, error) {
+func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) (stations []*models.LocationData, err error) {
 
 	logger.Infof("looking up CRS %v", crs)
 
-	var locationWithGroupData []*models.LocationWithGroupData
-	err := dtd.db.Raw(subquery, crs).Scan(&locationWithGroupData).Error
+	err = dtd.db.Unscoped().
+		Select("uic", "nlc", "description", "crs", "fare_group", "start_date", "end_date").
+		Where("crs = ?", crs).
+		Where("start_date <= CURDATE()").
+		Where("end_date > CURDATE()").
+		Find(&stations).
+		Error
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "querying for location %s:", crs)
 	}
 
-	if len(locationWithGroupData) == 0 {
-		return nil, ErrNotFound
+	if len(stations) > 0 {
+		logger.Infof("found %v from crs %v", stations[0].Description, crs)
+		return stations, nil
 	}
 
-	uics := []string{}
-
-	// We have results, now flatten the records by converting LocationWithGroupData into LocationWithGroups
-	locationWithGroups := make(map[string]*models.LocationWithGroups)
-
-	for _, location := range locationWithGroupData {
-		if _, found := locationWithGroups[location.UIC]; !found {
-			uics = append(uics, location.UIC)
-			locationWithGroups[location.UIC] = &models.LocationWithGroups{
-				UIC:         location.UIC,
-				NLC:         location.NLC,
-				CRS:         location.CRS,
-				FareGroup:   location.FareGroup,
-				Description: location.Description,
-				StartDate:   location.StartDate,
-				EndDate:     location.EndDate,
-				Groups:      []*models.LocationGroup{},
-			}
-		}
-
-		if location.GroupUicCode == "" {
-			continue
-		}
-
-		v, _ := locationWithGroups[location.UIC]
-
-		v.Groups = append(v.Groups, &models.LocationGroup{
-			UIC:         location.GroupUicCode,
-			Description: location.GroupDescription,
-		})
-	}
-
-	// We're only expecting 1 station to come back once the result has been reduced
-	if len(uics) > 1 {
-		return nil, errors.New(fmt.Sprintf("found multiple stations from crs %v", crs))
-	}
-
-	result := locationWithGroups[uics[0]]
-
-	logger.Infof("found %v from crs %v", result.Description, crs)
-
-	return result, nil
+	return nil, ErrNotFound
 }
 
 func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) (flows []*models.FlowDetail, err error) {

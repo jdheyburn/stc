@@ -63,7 +63,7 @@ func TestDtdRepositorySql_FindStationsByCrs(t *testing.T) {
 		fields  fields
 		args    args
 		setUp   func(args)
-		want    *models.LocationWithGroups
+		want    []*models.LocationData
 		wantErr error
 	}{
 		{
@@ -75,19 +75,20 @@ func TestDtdRepositorySql_FindStationsByCrs(t *testing.T) {
 				crs: "SNR",
 			},
 			setUp: func(a args) {
-				rows := sqlmock.NewRows([]string{"uic", "nlc", "crs", "description", "fare_group", "start_date", "end_date", "group_uic_code", "group_description"}).
-					AddRow("7054330", "5433", "SNR", "SANDERSTEAD", "5433", newDateField(2020, 9, 9), infiniteTime, nil, nil)
-				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQueryNew)).WithArgs("SNR").WillReturnRows(rows)
+				rows := sqlmock.NewRows([]string{"uic", "nlc", "description", "crs", "fare_group", "start_date", "end_date"}).
+					AddRow("7054330", "5433", "SANDERSTEAD", "SNR", "5433", newDateField(2020, 9, 9), infiniteTime)
+				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQuery)).WithArgs("SNR").WillReturnRows(rows)
 			},
-			want: &models.LocationWithGroups{
-				UIC:         "7054330",
-				StartDate:   newDateField(2020, 9, 9),
-				EndDate:     infiniteTime,
-				NLC:         "5433",
-				Description: "SANDERSTEAD",
-				CRS:         "SNR",
-				FareGroup:   "5433",
-				Groups:      []*models.LocationGroup{},
+			want: []*models.LocationData{
+				{
+					UIC:         "7054330",
+					StartDate:   newDateField(2020, 9, 9),
+					EndDate:     infiniteTime,
+					NLC:         "5433",
+					Description: "SANDERSTEAD",
+					CRS:         "SNR",
+					FareGroup:   "5433",
+				},
 			},
 		},
 		{
@@ -99,49 +100,10 @@ func TestDtdRepositorySql_FindStationsByCrs(t *testing.T) {
 				crs: "NOPE",
 			},
 			setUp: func(a args) {
-				rows := sqlmock.NewRows([]string{"uic", "nlc", "crs", "description", "fare_group", "start_date", "end_date", "group_uic_code", "group_description"})
-				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQueryNew)).WithArgs("NOPE").WillReturnRows(rows)
+				rows := sqlmock.NewRows([]string{"uic", "nlc", "description", "crs", "fare_group", "start_date", "end_date"})
+				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQuery)).WithArgs("NOPE").WillReturnRows(rows)
 			},
 			wantErr: ErrNotFound,
-		},
-		{
-			name: "should return grouped station location given CRS for grouped station",
-			fields: fields{
-				db: db,
-			},
-			args: args{
-				crs: "MCV",
-			},
-			setUp: func(a args) {
-				rows := sqlmock.NewRows([]string{"uic", "nlc", "crs", "description", "fare_group", "start_date", "end_date", "group_uic_code", "group_description"}).
-					AddRow("7029700", "2970", "MCV", "MANCHESTER VIC", "0438", newDateField(2020, 9, 9), infiniteTime, "7004380", "MANCHESTER STNS").
-					AddRow("7029700", "2970", "MCV", "MANCHESTER VIC", "0438", newDateField(2020, 9, 9), infiniteTime, "70L0050", "GM METROLNK Z1-4").
-					AddRow("7029700", "2970", "MCV", "MANCHESTER VIC", "0438", newDateField(2020, 9, 9), infiniteTime, "70L0090", "METROLINK Z1-2")
-				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQueryNew)).WithArgs("MCV").WillReturnRows(rows)
-			},
-			want: &models.LocationWithGroups{
-				UIC:         "7029700",
-				StartDate:   newDateField(2020, 9, 9),
-				EndDate:     infiniteTime,
-				NLC:         "2970",
-				Description: "MANCHESTER VIC",
-				CRS:         "MCV",
-				FareGroup:   "0438",
-				Groups: []*models.LocationGroup{
-					{
-						UIC:         "7004380",
-						Description: "MANCHESTER STNS",
-					},
-					{
-						UIC:         "70L0050",
-						Description: "GM METROLNK Z1-4",
-					},
-					{
-						UIC:         "70L0090",
-						Description: "METROLINK Z1-2",
-					},
-				},
-			},
 		},
 	}
 	for _, tt := range tests {
