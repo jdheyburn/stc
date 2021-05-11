@@ -13,6 +13,29 @@ import (
 	glogger "gorm.io/gorm/logger"
 )
 
+// TODO tidy this up or use gorm (RIP)
+var subquery = `test
+with grouped_locations as (
+	select lgm.member_uic_code , lgm.member_crs_code , lgm.group_uic_code, lg.description 
+	from location_group_member lgm 
+	left join location_group lg on lgm.group_uic_code = lg.group_uic_code 
+	where lgm.end_date > CURDATE() 
+	and lg.start_date <= CURDATE() AND lg.end_date > CURDATE()
+)
+select location.uic 
+, location.nlc
+, location.crs
+, location.description
+,location.fare_group
+, location.start_date
+, location.end_date
+, grouped_locations.group_uic_code 
+, grouped_locations.description as group_description
+from location
+left join grouped_locations on location.uic = grouped_locations.member_uic_code
+where location.crs = '?'
+and location.start_date <= CURDATE() and location.end_date > CURDATE();`
+
 // ErrNotFound is returned when a record cannot be found
 var ErrNotFound = errors.New("not found")
 
@@ -47,8 +70,6 @@ func NewDtdRepositorySql(options *DtdSqlDBOptions) (*DtdRepositorySql, error) {
 		Logger: dbLogger,
 	})
 
-	// db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
-
 	if err != nil {
 		return nil, errors.Wrap(err, "creating sql conn")
 	}
@@ -61,35 +82,63 @@ func NewDtdRepositorySql(options *DtdSqlDBOptions) (*DtdRepositorySql, error) {
 }
 
 // FindStationsByCrs returns locations from the given CRS code
-// TODO how to handle multiple locations
-func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) (stations []*models.LocationData, err error) {
+func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) (*models.LocationWithGroups, error) {
 
 	logger.Infof("looking up CRS %v", crs)
 
-	err = dtd.db.Unscoped().
-		Select("uic", "nlc", "description", "crs", "fare_group", "start_date", "end_date").
-		Where("crs = ?", crs).
-		Where("start_date <= CURDATE()").
-		Where("end_date > CURDATE()").
-		Find(&stations).
-		Error
+	var locationWithGroupData []*models.LocationWithGroupData
+	err := dtd.db.Raw(subquery, crs).Scan(&locationWithGroupData).Error
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "querying for location %s:", crs)
 	}
 
-	if len(stations) > 0 {
-		logger.Infof("found %v from crs %v", stations[0].Description, crs)
-		return stations, nil
+	if len(locationWithGroupData) == 0 {
+		return nil, ErrNotFound
 	}
 
-	// Check to see if this is a grouped station (i.e. LBG -> London Terminals)
-	// Query is in dbeaver
-	// err := dtd.db.Unscoped().
-	// Select()
+	uics := []string{}
 
-	return nil, ErrNotFound
+	// We have results, now flatten the records by converting LocationWithGroupData into LocationWithGroups
+	locationWithGroups := make(map[string]*models.LocationWithGroups)
 
+	for _, location := range locationWithGroupData {
+		if _, found := locationWithGroups[location.UIC]; !found {
+			uics = append(uics, location.UIC)
+			locationWithGroups[location.UIC] = &models.LocationWithGroups{
+				UIC:         location.UIC,
+				NLC:         location.NLC,
+				CRS:         location.CRS,
+				FareGroup:   location.FareGroup,
+				Description: location.Description,
+				StartDate:   location.StartDate,
+				EndDate:     location.EndDate,
+				Groups:      []*models.LocationGroup{},
+			}
+		}
+
+		if location.GroupUicCode == "" {
+			continue
+		}
+
+		v, _ := locationWithGroups[location.UIC]
+
+		v.Groups = append(v.Groups, &models.LocationGroup{
+			UIC:         location.GroupUicCode,
+			Description: location.GroupDescription,
+		})
+	}
+
+	// We're only expecting 1 station to come back once the result has been reduced
+	if len(uics) > 1 {
+		return nil, errors.New(fmt.Sprintf("found multiple stations from crs %v", crs))
+	}
+
+	result := locationWithGroups[uics[0]]
+
+	logger.Infof("found %v from crs %v", result.Description, crs)
+
+	return result, nil
 }
 
 func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) (flows []*models.FlowDetail, err error) {

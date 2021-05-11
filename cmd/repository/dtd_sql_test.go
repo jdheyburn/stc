@@ -20,6 +20,8 @@ const (
 	findFlowsForStationsDirectionQuery = "SELECT flow.flow_id,flow.origin_code,flow.destination_code,flow.direction,flow.start_date,flow.end_date,flow.route_code,route.description as route_desc FROM `flow` LEFT JOIN route on flow.route_code = route.route_code WHERE (flow.origin_code = ?) AND flow.destination_code = ? AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE() AND flow.direction = 'R'"
 	findAllFlowsForStationQuery        = "SELECT flow.flow_id,flow.origin_code,flow.destination_code,flow.direction,flow.start_date,flow.end_date,flow.route_code,route.description as route_desc FROM `flow` LEFT JOIN route on flow.route_code = route.route_code WHERE ((origin_code = ?) OR destination_code = ?) AND start_date <= CURDATE() AND end_date > CURDATE()"
 	findFaresForFlowQuery              = "SELECT fare.id,fare.flow_id,fare.ticket_code,fare.fare,fare.restriction_code,ticket_type.description as ticket_description,ticket_type.tkt_class as ticket_class,ticket_type.tkt_type as ticket_type,restriction_header.description as restriction_desc,restriction_header.desc_out as restriction_desc_out,restriction_header.desc_ret as restriction_desc_rtn FROM `fare` LEFT JOIN ticket_type on fare.ticket_code = ticket_type.ticket_code LEFT JOIN restriction_header on fare.restriction_code = restriction_header.restriction_code WHERE fare.flow_id IN (?) AND ticket_type.start_date <= CURDATE() AND ticket_type.end_date > CURDATE()"
+
+	findStationsByCrsQueryNew = "with grouped_locations as ( select lgm.member_uic_code , lgm.member_crs_code , lgm.group_uic_code, lg.description from location_group_member lgm left join location_group lg on lgm.group_uic_code = lg.group_uic_code where lgm.end_date > CURDATE() and lg.start_date <= CURDATE() AND lg.end_date > CURDATE() ) select location.uic , location.nlc , location.crs , location.description ,location.fare_group , location.start_date , location.end_date , grouped_locations.group_uic_code , grouped_locations.description as group_description from location left join grouped_locations on location.uic = grouped_locations.member_uic_code where location.crs = '?' and location.start_date <= CURDATE() and location.end_date > CURDATE();"
 )
 
 func newDateField(year int, month time.Month, day int) *time.Time {
@@ -61,7 +63,7 @@ func TestDtdRepositorySql_FindStationsByCrs(t *testing.T) {
 		fields  fields
 		args    args
 		setUp   func(args)
-		want    []*models.LocationData
+		want    *models.LocationWithGroups
 		wantErr error
 	}{
 		{
@@ -73,20 +75,19 @@ func TestDtdRepositorySql_FindStationsByCrs(t *testing.T) {
 				crs: "SNR",
 			},
 			setUp: func(a args) {
-				rows := sqlmock.NewRows([]string{"uic", "nlc", "description", "crs", "fare_group", "start_date", "end_date"}).
-					AddRow("7054330", "5433", "SANDERSTEAD", "SNR", "5433", newDateField(2020, 9, 9), infiniteTime)
-				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQuery)).WithArgs("SNR").WillReturnRows(rows)
+				rows := sqlmock.NewRows([]string{"uic", "nlc", "crs", "description", "fare_group", "start_date", "end_date", "group_uic_code", "group_description"}).
+					AddRow("7054330", "5433", "SNR", "SANDERSTEAD", "5433", newDateField(2020, 9, 9), infiniteTime, nil, nil)
+				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQueryNew)).WithArgs("SNR").WillReturnRows(rows)
 			},
-			want: []*models.LocationData{
-				{
-					UIC:         "7054330",
-					StartDate:   newDateField(2020, 9, 9),
-					EndDate:     infiniteTime,
-					NLC:         "5433",
-					Description: "SANDERSTEAD",
-					CRS:         "SNR",
-					FareGroup:   "5433",
-				},
+			want: &models.LocationWithGroups{
+				UIC:         "7054330",
+				StartDate:   newDateField(2020, 9, 9),
+				EndDate:     infiniteTime,
+				NLC:         "5433",
+				Description: "SANDERSTEAD",
+				CRS:         "SNR",
+				FareGroup:   "5433",
+				Groups:      []*models.LocationGroup{},
 			},
 		},
 		{
@@ -98,10 +99,49 @@ func TestDtdRepositorySql_FindStationsByCrs(t *testing.T) {
 				crs: "NOPE",
 			},
 			setUp: func(a args) {
-				rows := sqlmock.NewRows([]string{"uic", "nlc", "description", "crs", "fare_group", "start_date", "end_date"})
-				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQuery)).WithArgs("NOPE").WillReturnRows(rows)
+				rows := sqlmock.NewRows([]string{"uic", "nlc", "crs", "description", "fare_group", "start_date", "end_date", "group_uic_code", "group_description"})
+				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQueryNew)).WithArgs("NOPE").WillReturnRows(rows)
 			},
 			wantErr: ErrNotFound,
+		},
+		{
+			name: "should return grouped station location given CRS for grouped station",
+			fields: fields{
+				db: db,
+			},
+			args: args{
+				crs: "MCV",
+			},
+			setUp: func(a args) {
+				rows := sqlmock.NewRows([]string{"uic", "nlc", "crs", "description", "fare_group", "start_date", "end_date", "group_uic_code", "group_description"}).
+					AddRow("7029700", "2970", "MCV", "MANCHESTER VIC", "0438", newDateField(2020, 9, 9), infiniteTime, "7004380", "MANCHESTER STNS").
+					AddRow("7029700", "2970", "MCV", "MANCHESTER VIC", "0438", newDateField(2020, 9, 9), infiniteTime, "70L0050", "GM METROLNK Z1-4").
+					AddRow("7029700", "2970", "MCV", "MANCHESTER VIC", "0438", newDateField(2020, 9, 9), infiniteTime, "70L0090", "METROLINK Z1-2")
+				mock.ExpectQuery(regexp.QuoteMeta(findStationsByCrsQueryNew)).WithArgs("MCV").WillReturnRows(rows)
+			},
+			want: &models.LocationWithGroups{
+				UIC:         "7029700",
+				StartDate:   newDateField(2020, 9, 9),
+				EndDate:     infiniteTime,
+				NLC:         "2970",
+				Description: "MANCHESTER VIC",
+				CRS:         "MCV",
+				FareGroup:   "0438",
+				Groups: []*models.LocationGroup{
+					{
+						UIC:         "7004380",
+						Description: "MANCHESTER STNS",
+					},
+					{
+						UIC:         "70L0050",
+						Description: "GM METROLNK Z1-4",
+					},
+					{
+						UIC:         "70L0090",
+						Description: "METROLINK Z1-2",
+					},
+				},
+			},
 		},
 	}
 	for _, tt := range tests {
