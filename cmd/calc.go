@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"strconv"
 
+	"github.com/lensesio/tableprinter"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/jdheyburn/stc/cmd/models"
 	"github.com/jdheyburn/stc/cmd/repository"
 )
 
@@ -50,7 +49,7 @@ type Fares struct {
 }
 
 func Round(x, unit float64) float64 {
-	return math.Round(x / unit) * unit
+	return math.Round(x/unit) * unit
 }
 
 func calculateFares(weeklyFare uint) *Fares {
@@ -60,16 +59,16 @@ func calculateFares(weeklyFare uint) *Fares {
 	// 	panic(err)
 	// }
 	week := float64(weeklyFare) / 100
-	monthly := Round(week * 3.84, unit)
-	threeMonthly := Round(week * 3.84 * 3, unit)
-	sixMonthly := Round(week * 3.84 * 6, unit)
-	annual := Round(week * 40, unit)
+	monthly := Round(week*3.84, unit)
+	threeMonthly := Round(week*3.84*3, unit)
+	sixMonthly := Round(week*3.84*6, unit)
+	annual := Round(week*40, unit)
 	return &Fares{
-		WeeklyStd: week,
-		MonthlyStd: monthly,
+		WeeklyStd:       week,
+		MonthlyStd:      monthly,
 		ThreeMonthlyStd: threeMonthly,
-		SixMonthlyStd: sixMonthly,
-		AnnualStd: annual,
+		SixMonthlyStd:   sixMonthly,
+		AnnualStd:       annual,
 	}
 }
 
@@ -102,6 +101,55 @@ func calc(fromStation, toStation string) error {
 		panic(err)
 	}
 
+	srcNlcs, err := repo.FindNLCsRelatedToCrs(src[0].CRS)
+
+	if err != nil {
+		panic(err)
+	}
+
+	dstNlcs, err := repo.FindNLCsRelatedToCrs(dst[0].CRS)
+
+	if err != nil {
+		panic(err)
+	}
+	logger.Info("src")
+	logger.Info(fmt.Sprint(srcNlcs))
+	logger.Info("dst")
+	logger.Info(fmt.Sprint(dstNlcs))
+
+	flows, err := repo.FindFlowsForNLCs(srcNlcs, dstNlcs)
+
+	if err != nil {
+		panic(err)
+	}
+
+	logger.Info("flows")
+	logger.Info(fmt.Sprint(flows))
+
+	var flowIds []string
+	for _, flow := range flows {
+		flowIds = append(flowIds, flow.FlowID)
+	}
+
+	fares, err := repo.FindFaresForFlows(flowIds)
+
+	if err != nil {
+		panic(err)
+	}
+
+	logger.Info("fares")
+	var fareIds []uint
+	for _, fare := range fares {
+		fareIds = append(fareIds, fare.FlowID)
+	}
+
+	logger.Info(fmt.Sprint(len(fareIds)))
+	logger.Info(fmt.Sprint(fareIds))
+	printer := tableprinter.New(os.Stdout)
+
+	printer.Print(fares)
+
+	/* Below commented out while testing NLCs (old flow)
 	// 2. Get Flows for stations
 
 	flows, err := repo.FindFlowsForStations(src[0].NLC, dst[0].NLC)
@@ -149,6 +197,7 @@ func calc(fromStation, toStation string) error {
 	seasonTickets := calculateFares(found[0].Fare)
 	logger.Info(fmt.Sprint(seasonTickets))
 
+	*/
 
 	return nil
 }

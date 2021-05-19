@@ -21,5 +21,7 @@ type DtdRepository interface {
 	FindStationsByCrs(crs string) (*models.LocationData, error)
 	FindFlowsForStations(src, dst string) ([]*models.FlowData, error)
 	FindAllFlowsForStation(nlc string) ([]*models.FlowData, error)
-	FindFaresForFlow(flowId uint) ([]*models.FareDetail, error)
+	FindFaresForFlows(flowIds []string) ([]*models.FareDetail, error)
+	FindNLCsRelatedToCrs(crs string) ([]string, error)
+	FindFlowsForNLCs(srcNlcs []string, dstNlcs []string) ([]*models.FlowDetail, error)
 }
