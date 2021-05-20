@@ -23,6 +23,7 @@ type DtdRepository interface {
 	FindAllFlowsForStation(nlc string) ([]*models.FlowData, error)
 	FindFaresForFlows(flowIds []string) ([]*models.FareDetail, error)
 	FindFaresForNLCs(srcNlcs, dstNlcs []string) ([]*models.FareDetailExtreme, error)
+	FindFareOverridesForNLCs(srcNlcs, dstNlcs []string) ([]*models.FareDetailExtreme, error)
 	FindNLCsRelatedToCrs(crs string) ([]string, error)
 	FindFlowsForNLCs(srcNlcs []string, dstNlcs []string) ([]*models.FlowDetail, error)
 }

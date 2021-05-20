@@ -146,8 +146,15 @@ func calc(fromStation, toStation string) error {
 	}
 
 	logger.Info(fmt.Sprint(len(fareIds)))
-	logger.Info(fmt.Sprint(fareIds))
 	printer := tableprinter.New(os.Stdout)
+
+	//printer.Print(fares)
+
+	overrides, err := repo.FindFareOverridesForNLCs(srcNlcs, dstNlcs)
+
+	for _, fare := range overrides {
+		fares = append(fares, fare)
+	}
 
 	printer.Print(fares)
 

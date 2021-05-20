@@ -53,7 +53,8 @@ type FareDetailExtreme struct {
 	TicketDesc      string `header:"tkt_desc"`
 	TicketClass     uint   `header:"tkt_class"`
 	TicketType      string `header:"tkt_type"`
-	Fare            uint   `header:"fare"`
+	AdultFare       uint   `header:"adult_fare"`
+	ChildFare       uint  `header:"child_fare"`
 	RestrictionCode string `header:"restriction_code"`
 	RestrictionDesc string `header:"restriction_desc"`
 }
