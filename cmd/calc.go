@@ -117,21 +117,23 @@ func calc(fromStation, toStation string) error {
 	logger.Info("dst")
 	logger.Info(fmt.Sprint(dstNlcs))
 
-	flows, err := repo.FindFlowsForNLCs(srcNlcs, dstNlcs)
+	// flows, err := repo.FindFlowsForNLCs(srcNlcs, dstNlcs)
 
-	if err != nil {
-		panic(err)
-	}
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	logger.Info("flows")
-	logger.Info(fmt.Sprint(flows))
+	// logger.Info("flows")
+	// logger.Info(fmt.Sprint(flows))
 
-	var flowIds []string
-	for _, flow := range flows {
-		flowIds = append(flowIds, flow.FlowID)
-	}
+	// var flowIds []string
+	// for _, flow := range flows {
+	// 	flowIds = append(flowIds, flow.FlowID)
+	// }
 
-	fares, err := repo.FindFaresForFlows(flowIds)
+	// fares, err := repo.FindFaresForFlows(flowIds)
+
+	fares, err := repo.FindFaresForNLCs(srcNlcs, dstNlcs)
 
 	if err != nil {
 		panic(err)

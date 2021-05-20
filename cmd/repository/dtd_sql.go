@@ -45,6 +45,44 @@ nlcs as (
 )
 select distinct(nlc) from nlcs`
 
+// Apologies in advance
+var fares_query = `select
+flow.origin_code
+, (select description from location where nlc = flow.origin_code and location.start_date <= CURDATE() and location.end_date > CURDATE()) as origin_name
+, flow.destination_code
+, (select description from location where nlc = flow.destination_code and location.start_date <= CURDATE() and location.end_date > CURDATE()) as destination_name
+, flow.route_code
+, route.description as route_desc
+, route.aaa_desc as route_aaa_desc
+, flow.status_code
+, flow.usage_code
+, flow.toc
+, fare.flow_id
+, fare.id as fare_id
+, fare.ticket_code
+,ticket_type.description as ticket_desc
+,ticket_type.tkt_class as ticket_class
+,ticket_type.tkt_type as ticket_type
+, fare.fare
+, fare.restriction_code
+, restriction_header.description as restriction_des
+from flow 
+left join route on flow.route_code = route.route_code 
+left join fare on flow.flow_id = fare.flow_id 
+left join ticket_type on fare.ticket_code = ticket_type.ticket_code 
+left join restriction_header on fare.restriction_code = restriction_header.restriction_code
+where 
+flow.start_date <= CURDATE() and flow.end_date > CURDATE() 
+AND route.start_date <= CURDATE() and route.end_date > CURDATE()
+AND ticket_type.start_date <= CURDATE() and ticket_type.end_date > CURDATE()
+AND ticket_type.tkt_type = 'N' AND ticket_type.tkt_class = '2'
+AND (
+	(origin_code IN ? and destination_code in ?) 
+	OR
+	(origin_code IN ? and destination_code in ? and direction = 'R')
+)
+order by fare asc`
+
 // ErrNotFound is returned when a record cannot be found
 var ErrNotFound = errors.New("not found")
 
@@ -128,6 +166,19 @@ func (dtd *DtdRepositorySql) FindNLCsRelatedToCrs(crs string) (nlcs []string, er
 	return nlcs, nil
 }
 
+func (dtd *DtdRepositorySql) FindFaresForNLCs(srcNlcs, dstNlcs []string) (fares []*models.FareDetailExtreme, err error) {
+
+	logger.Infof("looking up fares related to nlcs")
+
+	err = dtd.db.Raw(fares_query, srcNlcs, dstNlcs, dstNlcs, srcNlcs).Scan(&fares).Error
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "querying for fares related to nlcs")
+	}
+
+	return fares, nil
+}
+
 func (dtd *DtdRepositorySql) FindFlowsForNLCs(srcNlcs []string, dstNlcs []string) (flows []*models.FlowDetail, err error) {
 
 	logger.Infof("looking up flows matching src and dst NLCs")
@@ -196,7 +247,6 @@ func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) (flows []
 }
 
 // FindFlowsForStations returns all flows between two NLC codes
-// TODO need to find flows where the second query is not in direction R
 func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) (flows []*models.FlowDetail, err error) {
 
 	logger.Infof("searching for all flows between src %v and dst %v", src, dst)
