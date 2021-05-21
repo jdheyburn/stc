@@ -13,29 +13,6 @@ import (
 	glogger "gorm.io/gorm/logger"
 )
 
-// TODO tidy this up or use gorm (RIP)
-var subquery = `test
-with grouped_locations as (
-	select lgm.member_uic_code , lgm.member_crs_code , lgm.group_uic_code, lg.description 
-	from location_group_member lgm 
-	left join location_group lg on lgm.group_uic_code = lg.group_uic_code 
-	where lgm.end_date > CURDATE() 
-	and lg.start_date <= CURDATE() AND lg.end_date > CURDATE()
-)
-select location.uic 
-, location.nlc
-, location.crs
-, location.description
-,location.fare_group
-, location.start_date
-, location.end_date
-, grouped_locations.group_uic_code 
-, grouped_locations.description as group_description
-from location
-left join grouped_locations on location.uic = grouped_locations.member_uic_code
-where location.crs = '?'
-and location.start_date <= CURDATE() and location.end_date > CURDATE();`
-
 // ErrNotFound is returned when a record cannot be found
 var ErrNotFound = errors.New("not found")
 
@@ -82,63 +59,111 @@ func NewDtdRepositorySql(options *DtdSqlDBOptions) (*DtdRepositorySql, error) {
 }
 
 // FindStationsByCrs returns locations from the given CRS code
-func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) (*models.LocationWithGroups, error) {
+func (dtd *DtdRepositorySql) FindStationsByCrs(crs string) (stations []*models.LocationData, err error) {
 
 	logger.Infof("looking up CRS %v", crs)
 
-	var locationWithGroupData []*models.LocationWithGroupData
-	err := dtd.db.Raw(subquery, crs).Scan(&locationWithGroupData).Error
+	err = dtd.db.Unscoped().
+		Select("uic", "nlc", "description", "crs", "fare_group", "start_date", "end_date").
+		Where("crs = ?", crs).
+		Where("start_date <= CURDATE()").
+		Where("end_date > CURDATE()").
+		Find(&stations).
+		Error
 
 	if err != nil {
-		return nil, errors.Wrapf(err, "querying for location %s:", crs)
+		return nil, errors.Wrapf(err, "querying for location %s", crs)
 	}
 
-	if len(locationWithGroupData) == 0 {
-		return nil, ErrNotFound
+	if len(stations) > 0 {
+		logger.Infof("found %v from crs %v", stations[0].Description, crs)
+		return stations, nil
 	}
 
-	uics := []string{}
+	return nil, ErrNotFound
+}
 
-	// We have results, now flatten the records by converting LocationWithGroupData into LocationWithGroups
-	locationWithGroups := make(map[string]*models.LocationWithGroups)
+func (dtd *DtdRepositorySql) FindNLCsRelatedToCrs(crs string) (nlcs []string, err error) {
 
-	for _, location := range locationWithGroupData {
-		if _, found := locationWithGroups[location.UIC]; !found {
-			uics = append(uics, location.UIC)
-			locationWithGroups[location.UIC] = &models.LocationWithGroups{
-				UIC:         location.UIC,
-				NLC:         location.NLC,
-				CRS:         location.CRS,
-				FareGroup:   location.FareGroup,
-				Description: location.Description,
-				StartDate:   location.StartDate,
-				EndDate:     location.EndDate,
-				Groups:      []*models.LocationGroup{},
+	logger.Infof("looking up NLCs related to CRS %v", crs)
+
+	err = dtd.db.Raw(nlcs_query, crs, crs).Scan(&nlcs).Error
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "querying for NLCs related to CRS %s", crs)
+	}
+
+	return nlcs, nil
+}
+
+func (dtd *DtdRepositorySql) FindFaresForNLCs(srcNlcs, dstNlcs []string, season bool, class string) (fares []*models.FareDetailExtreme, err error) {
+
+	logger.Infof("looking up fares related to nlcs")
+
+	err = dtd.db.Raw(fares_query, srcNlcs, dstNlcs, dstNlcs, srcNlcs).Scan(&fares).Error
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "querying for fares related to nlcs")
+	}
+
+	// TODO replace with SQL query filter
+	if season {
+		var filtered []*models.FareDetailExtreme
+		for _, fare := range fares {
+			if fare.TicketType == "N" {
+				filtered = append(filtered, fare)
 			}
 		}
-
-		if location.GroupUicCode == "" {
-			continue
-		}
-
-		v, _ := locationWithGroups[location.UIC]
-
-		v.Groups = append(v.Groups, &models.LocationGroup{
-			UIC:         location.GroupUicCode,
-			Description: location.GroupDescription,
-		})
+		return filtered, nil
 	}
 
-	// We're only expecting 1 station to come back once the result has been reduced
-	if len(uics) > 1 {
-		return nil, errors.New(fmt.Sprintf("found multiple stations from crs %v", crs))
+	return fares, nil
+}
+
+func (dtd *DtdRepositorySql) FindFareOverridesForNLCs(srcNlcs, dstNlcs []string) (fares []*models.FareDetailExtreme, err error) {
+
+	logger.Infof("looking up fares overrides related to nlcs")
+
+	err = dtd.db.Raw(nfo_query, srcNlcs, dstNlcs).Scan(&fares).Error
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "querying for fares overrides related to nlcs")
 	}
 
-	result := locationWithGroups[uics[0]]
+	return fares, nil
+}
 
-	logger.Infof("found %v from crs %v", result.Description, crs)
+func (dtd *DtdRepositorySql) FindFlowsForNLCs(srcNlcs []string, dstNlcs []string) (flows []*models.FlowDetail, err error) {
 
-	return result, nil
+	logger.Infof("looking up flows matching src and dst NLCs")
+
+	err = dtd.db.Unscoped().Model(&models.FlowData{}).
+		Select(
+			"flow.flow_id",
+			"flow.origin_code",
+			"flow.destination_code",
+			"flow.direction",
+			"flow.start_date",
+			"flow.end_date",
+			"flow.route_code",
+			"route.description as route_desc",
+		).
+		Joins("LEFT JOIN route on flow.route_code = route.route_code").
+		Where(
+			dtd.db.Where("flow.origin_code in ?", srcNlcs).Where("flow.destination_code in ?", dstNlcs),
+		).
+		Or(dtd.db.Where("flow.origin_code in ?", dstNlcs).Where("flow.destination_code in ?", srcNlcs).Where("flow.direction = 'R'")).
+		Where("flow.start_date <= CURDATE()").
+		Where("flow.end_date > CURDATE()").
+		Where("route.start_date <= CURDATE()").
+		Where("route.end_date > CURDATE()").
+		Find(&flows).Error
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "querying for flows")
+	}
+
+	return flows, nil
 }
 
 func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) (flows []*models.FlowDetail, err error) {
@@ -176,7 +201,6 @@ func (dtd *DtdRepositorySql) findFlows(src, dst string, reversed bool) (flows []
 }
 
 // FindFlowsForStations returns all flows between two NLC codes
-// TODO need to find flows where the second query is not in direction R
 func (dtd *DtdRepositorySql) FindFlowsForStations(src, dst string) (flows []*models.FlowDetail, err error) {
 
 	logger.Infof("searching for all flows between src %v and dst %v", src, dst)
@@ -241,12 +265,12 @@ func (dtd *DtdRepositorySql) FindAllFlowsForStation(nlc string) (flows []*models
 	return flows, nil
 }
 
-func (dtd *DtdRepositorySql) FindFaresForFlow(flowId uint64) (fares []*models.FareDetail, err error) {
+func (dtd *DtdRepositorySql) FindFaresForFlows(flowIds []string) (fares []*models.FareDetail, err error) {
 
-	logger.Infof("finding fares for flow Id %v", flowId)
+	logger.Infof("finding fares for flowIDs %v", flowIds)
 
 	err = dtd.db.Unscoped().Model(&models.FareData{}).
-		Select(
+		Distinct(
 			"fare.id",
 			"fare.flow_id",
 			"fare.ticket_code",
@@ -260,22 +284,25 @@ func (dtd *DtdRepositorySql) FindFaresForFlow(flowId uint64) (fares []*models.Fa
 			"restriction_header.desc_ret as restriction_desc_rtn",
 		).
 		Joins("LEFT JOIN ticket_type on fare.ticket_code = ticket_type.ticket_code").
+		// TODO this join causes duplicate records (need a better query - Distinct is a workaround)
 		Joins("LEFT JOIN restriction_header on fare.restriction_code = restriction_header.restriction_code").
-		Where("fare.flow_id IN (?)", flowId).
+		Where("fare.flow_id IN ?", flowIds).
 		Where("ticket_type.start_date <= CURDATE()").
 		Where("ticket_type.end_date > CURDATE()").
-		Scan(&fares).
-		Error
+		Where("ticket_type.tkt_type = 'N'"). // Season tickets only
+		Where("ticket_type.tkt_class = 2").  // 2nd class only
+		Order("fare ASC").
+		Scan(&fares).Error
 
 	if err != nil {
-		return nil, errors.Wrapf(err, "querying all fares for flowID %v", flowId)
+		return nil, errors.Wrapf(err, "querying all fares for flowIDs %v", flowIds)
 	}
 
 	if len(fares) == 0 {
 		return nil, ErrNotFound
 	}
 
-	logger.Infof("returning %v fares for flow Id &v", len(fares), flowId)
+	logger.Infof("returning %v fares for flowIDs &v", len(fares), flowIds)
 
 	return fares, nil
 }

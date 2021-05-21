@@ -33,7 +33,7 @@ WHERE flow.origin_code = 5486 AND flow.destination_code = 5433 AND flow.start_da
 SELECT flow.flow_id,flow.origin_code,flow.destination_code,flow.direction,flow.start_date,flow.end_date,flow.route_code,route.description as route_desc 
 FROM `flow`
 LEFT JOIN route on flow.route_code = route.route_code 
-WHERE flow.origin_code = 5433 AND flow.destination_code = 5486 AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE()
+WHERE flow.origin_code = 5433 AND flow.destination_code = 1072 AND flow.start_date <= CURDATE() AND flow.end_date > CURDATE() AND route.start_date <= CURDATE() AND route.end_date > CURDATE()
 
 
 
