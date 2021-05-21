@@ -35,7 +35,7 @@ var calcCmd = &cobra.Command{
 	Short: "Calculate a season ticket",
 	Long:  `TBC`,
 	Run: func(cmd *cobra.Command, args []string) {
-		logger.Debug("Arguments", zap.String("from", fromStation), zap.String("to", toStation))
+		logger.Debug("Arguments", zap.String("from", fromStation), zap.String("to", toStation), zap.Bool("season", season))
 		if err := calc(fromStation, toStation, season); err != nil {
 			logger.Error("error running calc", zap.Error(err))
 			os.Exit(1)
@@ -75,48 +75,51 @@ func calculateFares(weeklyFare uint) *Fares {
 	}
 }
 
-type getFaresConfig struct {
-	repo        *repository.DtdRepositorySql
-	fromStation string
-	toStation   string
-	season      bool
-	class       string
+type GetFaresConfig struct {
+	Repo        *repository.DtdRepositorySql
+	FromStation string
+	ToStation   string
+	Season      bool
+	Class       string
 }
 
-func GetFares(cfg *getFaresConfig) ([]*models.FareDetailExtreme, error) {
-	src, err := cfg.repo.FindStationsByCrs(cfg.fromStation)
+func GetFares(cfg *GetFaresConfig) ([]*models.FareDetailExtreme, error) {
+
+	logger.Info("searching for fares with config", zap.Any("cfg", cfg))
+
+	src, err := cfg.Repo.FindStationsByCrs(cfg.FromStation)
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "finding stations for source crs")
 	}
 
-	logger.Debug("found station for crs", zap.String("crs", cfg.fromStation), zap.Any("station", src))
+	logger.Debug("found station for crs", zap.String("crs", cfg.FromStation), zap.Any("station", src))
 
-	dst, err := cfg.repo.FindStationsByCrs(cfg.toStation)
+	dst, err := cfg.Repo.FindStationsByCrs(cfg.ToStation)
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "finding stations for destination crs")
 	}
 
-	logger.Debug("found station for crs", zap.String("crs", cfg.toStation), zap.Any("station", src))
+	logger.Debug("found station for crs", zap.String("crs", cfg.ToStation), zap.Any("station", src))
 
-	srcNlcs, err := cfg.repo.FindNLCsRelatedToCrs(src[0].CRS)
+	srcNlcs, err := cfg.Repo.FindNLCsRelatedToCrs(src[0].CRS)
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "finding NLCs related to source CRS")
 	}
 
-	logger.Debug("found NLCs related to crs", zap.String("crs", cfg.fromStation), zap.Any("nlcs", srcNlcs))
+	logger.Debug("found NLCs related to crs", zap.String("crs", cfg.FromStation), zap.Any("nlcs", srcNlcs))
 
-	dstNlcs, err := cfg.repo.FindNLCsRelatedToCrs(dst[0].CRS)
+	dstNlcs, err := cfg.Repo.FindNLCsRelatedToCrs(dst[0].CRS)
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "finding NLCs related to destination CRS")
 	}
 
-	logger.Debug("found NLCs related to crs", zap.String("crs", cfg.toStation), zap.Any("nlcs", dstNlcs))
+	logger.Debug("found NLCs related to crs", zap.String("crs", cfg.ToStation), zap.Any("nlcs", dstNlcs))
 
-	fares, err := cfg.repo.FindFaresForNLCs(srcNlcs, dstNlcs, cfg.season, cfg.class)
+	fares, err := cfg.Repo.FindFaresForNLCs(srcNlcs, dstNlcs, cfg.Season, cfg.Class)
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "finding fares for src and dst NLCs")
@@ -124,9 +127,9 @@ func GetFares(cfg *getFaresConfig) ([]*models.FareDetailExtreme, error) {
 
 	logger.Info("found fares for src and dst NLCs", zap.Int("numFares", len(fares)))
 
-	if !cfg.season {
+	if !cfg.Season {
 		logger.Info("season ticket not specified, retrieving fare overrides")
-		overrides, err := cfg.repo.FindFareOverridesForNLCs(srcNlcs, dstNlcs)
+		overrides, err := cfg.Repo.FindFareOverridesForNLCs(srcNlcs, dstNlcs)
 		if err != nil {
 			return nil, errors.Wrapf(err, "retrieving fare overrides")
 		}
@@ -141,6 +144,7 @@ func GetFares(cfg *getFaresConfig) ([]*models.FareDetailExtreme, error) {
 	return fares, nil
 }
 
+// Kinda using this just for testing locally atm
 func calc(fromStation, toStation string, season bool) error {
 
 	opts := &repository.DtdSqlDBOptions{
@@ -155,12 +159,12 @@ func calc(fromStation, toStation string, season bool) error {
 		panic(err)
 	}
 
-	cfg := &getFaresConfig{
-		repo:        repo,
-		fromStation: fromStation,
-		toStation:   toStation,
-		season:      season,
-		class:       "2",
+	cfg := &GetFaresConfig{
+		Repo:        repo,
+		FromStation: fromStation,
+		ToStation:   toStation,
+		Season:      season,
+		Class:       "2",
 	}
 
 	fares, err := GetFares(cfg)
