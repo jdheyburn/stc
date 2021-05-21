@@ -1,28 +1,31 @@
 package cmd
 
 import (
-	"fmt"
 	"math"
 	"os"
 
 	"github.com/lensesio/tableprinter"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/jdheyburn/stc/cmd/models"
 	"github.com/jdheyburn/stc/cmd/repository"
 )
 
 var logger, _ = zap.NewDevelopment()
 var fromStation, toStation string
+var season bool
 
 func init() {
 	config := zap.NewDevelopmentConfig()
 	config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 	logger, _ = config.Build()
 	rootCmd.AddCommand(calcCmd)
-	calcCmd.Flags().StringVarP(&fromStation, "from", "f", "", "Where the season ticket should start from")
-	calcCmd.Flags().StringVarP(&toStation, "to", "t", "", "Where the season ticket should end at")
+	calcCmd.Flags().StringVarP(&fromStation, "from", "f", "", "Origin station CRS code")
+	calcCmd.Flags().StringVarP(&toStation, "to", "t", "", "Destination station CRS code")
+	calcCmd.Flags().BoolVarP(&season, "season", "s", false, "Whether to lookup season tickets only")
 	calcCmd.MarkFlagRequired("from")
 	calcCmd.MarkFlagRequired("to")
 }
@@ -33,7 +36,7 @@ var calcCmd = &cobra.Command{
 	Long:  `TBC`,
 	Run: func(cmd *cobra.Command, args []string) {
 		logger.Debug("Arguments", zap.String("from", fromStation), zap.String("to", toStation))
-		if err := calc(fromStation, toStation); err != nil {
+		if err := calc(fromStation, toStation, season); err != nil {
 			logger.Error("error running calc", zap.Error(err))
 			os.Exit(1)
 		}
@@ -72,7 +75,73 @@ func calculateFares(weeklyFare uint) *Fares {
 	}
 }
 
-func calc(fromStation, toStation string) error {
+type getFaresConfig struct {
+	repo        *repository.DtdRepositorySql
+	fromStation string
+	toStation   string
+	season      bool
+	class       string
+}
+
+func GetFares(cfg *getFaresConfig) ([]*models.FareDetailExtreme, error) {
+	src, err := cfg.repo.FindStationsByCrs(cfg.fromStation)
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "finding stations for source crs")
+	}
+
+	logger.Debug("found station for crs", zap.String("crs", cfg.fromStation), zap.Any("station", src))
+
+	dst, err := cfg.repo.FindStationsByCrs(cfg.toStation)
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "finding stations for destination crs")
+	}
+
+	logger.Debug("found station for crs", zap.String("crs", cfg.toStation), zap.Any("station", src))
+
+	srcNlcs, err := cfg.repo.FindNLCsRelatedToCrs(src[0].CRS)
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "finding NLCs related to source CRS")
+	}
+
+	logger.Debug("found NLCs related to crs", zap.String("crs", cfg.fromStation), zap.Any("nlcs", srcNlcs))
+
+	dstNlcs, err := cfg.repo.FindNLCsRelatedToCrs(dst[0].CRS)
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "finding NLCs related to destination CRS")
+	}
+
+	logger.Debug("found NLCs related to crs", zap.String("crs", cfg.toStation), zap.Any("nlcs", dstNlcs))
+
+	fares, err := cfg.repo.FindFaresForNLCs(srcNlcs, dstNlcs, cfg.season, cfg.class)
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "finding fares for src and dst NLCs")
+	}
+
+	logger.Info("found fares for src and dst NLCs", zap.Int("numFares", len(fares)))
+
+	if !cfg.season {
+		logger.Info("season ticket not specified, retrieving fare overrides")
+		overrides, err := cfg.repo.FindFareOverridesForNLCs(srcNlcs, dstNlcs)
+		if err != nil {
+			return nil, errors.Wrapf(err, "retrieving fare overrides")
+		}
+
+		logger.Info("found fare overrides", zap.Int("numFares", len(overrides)))
+
+		for _, fare := range overrides {
+			fares = append(fares, fare)
+		}
+	}
+
+	return fares, nil
+}
+
+func calc(fromStation, toStation string, season bool) error {
 
 	opts := &repository.DtdSqlDBOptions{
 		User:     "root",
@@ -86,127 +155,18 @@ func calc(fromStation, toStation string) error {
 		panic(err)
 	}
 
-	// 1. Get the NLCs from CRS
-	// TODO don't assume the user has input CRS
-
-	src, err := repo.FindStationsByCrs(fromStation)
-
-	if err != nil {
-		panic(err)
+	cfg := &getFaresConfig{
+		repo:        repo,
+		fromStation: fromStation,
+		toStation:   toStation,
+		season:      season,
+		class:       "2",
 	}
 
-	dst, err := repo.FindStationsByCrs(toStation)
+	fares, err := GetFares(cfg)
 
-	if err != nil {
-		panic(err)
-	}
-
-	srcNlcs, err := repo.FindNLCsRelatedToCrs(src[0].CRS)
-
-	if err != nil {
-		panic(err)
-	}
-
-	dstNlcs, err := repo.FindNLCsRelatedToCrs(dst[0].CRS)
-
-	if err != nil {
-		panic(err)
-	}
-	logger.Info("src")
-	logger.Info(fmt.Sprint(srcNlcs))
-	logger.Info("dst")
-	logger.Info(fmt.Sprint(dstNlcs))
-
-	// flows, err := repo.FindFlowsForNLCs(srcNlcs, dstNlcs)
-
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// logger.Info("flows")
-	// logger.Info(fmt.Sprint(flows))
-
-	// var flowIds []string
-	// for _, flow := range flows {
-	// 	flowIds = append(flowIds, flow.FlowID)
-	// }
-
-	// fares, err := repo.FindFaresForFlows(flowIds)
-
-	fares, err := repo.FindFaresForNLCs(srcNlcs, dstNlcs)
-
-	if err != nil {
-		panic(err)
-	}
-
-	logger.Info("fares")
-	var fareIds []uint
-	for _, fare := range fares {
-		fareIds = append(fareIds, fare.FlowID)
-	}
-
-	logger.Info(fmt.Sprint(len(fareIds)))
 	printer := tableprinter.New(os.Stdout)
-
-	//printer.Print(fares)
-
-	overrides, err := repo.FindFareOverridesForNLCs(srcNlcs, dstNlcs)
-
-	for _, fare := range overrides {
-		fares = append(fares, fare)
-	}
-
 	printer.Print(fares)
-
-	/* Below commented out while testing NLCs (old flow)
-	// 2. Get Flows for stations
-
-	flows, err := repo.FindFlowsForStations(src[0].NLC, dst[0].NLC)
-
-	if err != nil {
-		panic(err)
-	}
-
-	if len(flows) > 1 {
-		panic("More than one flow found")
-	}
-
-	// 3. Get fares for flows
-
-	flow := flows[0]
-	i, err := strconv.ParseUint(flow.FlowID, 10, 64)
-	if err != nil {
-		panic(err)
-	}
-	fares, err := repo.FindFaresForFlow(i)
-
-	// 4. Get the 7DS ticket_code
-
-	// filter down to get just 7DS ticket_code
-	// TODO maybe have the DB do the filter?
-
-	found := []*models.FareDetail{}
-	for _, fare := range fares {
-		if fare.TicketCode == "7DS" {
-			found = append(found, fare)
-		}
-	}
-
-	if len(found) == 0 {
-		panic("no 7DS found")
-	}
-
-	if len(found) > 1 {
-		panic("more than one 7DS found")
-	}
-
-	logger.Info(fmt.Sprint(found[0].ID))
-
-	// 5. Now use the fare to calculate the prices
-	seasonTickets := calculateFares(found[0].Fare)
-	logger.Info(fmt.Sprint(seasonTickets))
-
-	*/
 
 	return nil
 }

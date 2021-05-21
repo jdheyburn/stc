@@ -66,7 +66,8 @@ where
 flow.start_date <= CURDATE() and flow.end_date > CURDATE() 
 AND route.start_date <= CURDATE() and route.end_date > CURDATE()
 AND ticket_type.start_date <= CURDATE() and ticket_type.end_date > CURDATE()
--- AND ticket_type.tkt_type = 'N' AND ticket_type.tkt_class = '2'
+AND ticket_type.tkt_class = '2'
+AND flow.route_code IN ('00000', '01000') -- default to any permitted routes for now
 AND (
 	(origin_code IN ? and destination_code in ?) 
 	OR

@@ -96,7 +96,7 @@ func (dtd *DtdRepositorySql) FindNLCsRelatedToCrs(crs string) (nlcs []string, er
 	return nlcs, nil
 }
 
-func (dtd *DtdRepositorySql) FindFaresForNLCs(srcNlcs, dstNlcs []string) (fares []*models.FareDetailExtreme, err error) {
+func (dtd *DtdRepositorySql) FindFaresForNLCs(srcNlcs, dstNlcs []string, season bool, class string) (fares []*models.FareDetailExtreme, err error) {
 
 	logger.Infof("looking up fares related to nlcs")
 
@@ -104,6 +104,17 @@ func (dtd *DtdRepositorySql) FindFaresForNLCs(srcNlcs, dstNlcs []string) (fares 
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "querying for fares related to nlcs")
+	}
+
+	// TODO replace with SQL query filter
+	if season {
+		var filtered []*models.FareDetailExtreme
+		for _, fare := range fares {
+			if fare.TicketType == "N" {
+				filtered = append(filtered, fare)
+			}
+		}
+		return filtered, nil
 	}
 
 	return fares, nil
