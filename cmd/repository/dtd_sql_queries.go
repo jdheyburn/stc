@@ -16,7 +16,7 @@ nlcs as (
 	Select nlc from this_loc
 	union
 	-- query 2 - clustered location NLC
-	select cluster_id as nlc from this_loc left join station_cluster on this_loc.nlc = station_cluster.cluster_nlc
+	select cluster_id as nlc from this_loc left join station_cluster on this_loc.nlc = station_cluster.cluster_nlc where cluster_id is not null
 	union
 	-- query 3 - NLCs that exist in other groups
 	select nlc from this_group_members_loc
@@ -28,7 +28,7 @@ nlcs as (
 	select fare_group as nlc from this_loc
 	union
 	-- query 6 - clustered locations from fare group
-	select cluster_id as nlc from this_loc left join station_cluster on this_loc.fare_group = station_cluster.cluster_nlc
+	select cluster_id as nlc from this_loc left join station_cluster on this_loc.fare_group = station_cluster.cluster_nlc  where cluster_id is not null
 	union
 	-- query 7 - (mine) lookup against zone group
 	select zone_no as nlc from this_loc where zone_no is not null
